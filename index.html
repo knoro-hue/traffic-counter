@@ -96,12 +96,12 @@ input[type=file]{display:none}
 .pop td{padding:1px 0 1px 10px;border:none;font:500 12px var(--mono);text-align:right}
 .pop td:first-child{padding-left:0;text-align:left;font-family:var(--sans);color:#555}
 .sites{display:flex;flex-direction:column;margin-top:8px}
-.site{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:center}
+.site{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
 .site .nm-wrap{display:flex;align-items:center;gap:8px;min-width:0}
 .site .nm-wrap input{width:20px;height:20px;flex:none;accent-color:var(--ped)}
 .site .nm{font-weight:700;overflow-wrap:anywhere;background:none;border:none;padding:0;min-height:0;text-align:left;color:var(--fg);font-size:14px}
-.site .meta{grid-column:1;padding-left:28px;font:500 12px var(--mono);color:var(--muted)}
-.site .acts{grid-row:1/3;grid-column:2;display:flex;gap:6px}
+.site .meta{padding-left:28px;font:500 12px var(--mono);color:var(--muted)}
+.site .acts{display:flex;gap:6px;padding-left:28px}
 .site .acts button,.site .acts .btnlink{padding:6px 10px;min-height:36px;font:500 12px var(--sans);display:inline-flex;align-items:center;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:8px;text-decoration:none}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;z-index:1000;
   padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
@@ -116,7 +116,7 @@ input[type=file]{display:none}
 .mapwrap{position:relative}
 .bk{background:#2a2f12;border:1px solid var(--accent);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:13px}
 .bk button.primary{flex:0 1 auto}
-.site .acts{flex-wrap:wrap;justify-content:flex-end}
+.site .acts{flex-wrap:wrap}
 .imgsheet img{width:100%;border-radius:8px;border:1px solid var(--line);display:block}
 .imgsheet .note{font-size:12px;color:var(--muted);margin:0}
 </style>
@@ -201,6 +201,20 @@ input[type=file]{display:none}
   <section class="card">
     <h2>計測ライン</h2>
     <div class="row">
+      <label class="f">判定ラインの本数
+        <select id="selMulti">
+          <option value="1">1本</option>
+          <option value="3" selected>3本</option>
+          <option value="5">5本</option>
+        </select>
+      </label>
+      <label class="f">判定ラインの間隔
+        <select id="selGap">
+          <option value="0.08">狭い</option>
+          <option value="0.14" selected>標準</option>
+          <option value="0.22">広い</option>
+        </select>
+      </label>
       <label class="f">通行ライン（黄）
         <select id="selLine">
           <option value="">ドラッグで調整</option>
@@ -354,12 +368,12 @@ const S = {
   check:{on:false, start:0, end:0, manual:[]},   // 目視チェック
   lastT:0, fps:0, vw:0, vh:0
 };
-const MAX_MISS_MS = 1500;   // 見失っても1.5秒は同じ人として保持
+const MAX_MISS_MS = 2000;   // 見失っても2秒は同じ人として保持（人の陰に隠れた場合に備える）
 const KEEP_SCORE = 0.25;    // 追跡中の人は低い信頼度でも継続（ちらつき防止）
 
 // ---------- 保存 ----------
 const KEY = 'tc-state-v2', OLD_KEY = 'tc-state-v1';
-const SETTINGS = ['selModel','selConf','selMin','selRate','selBin'];
+const SETTINGS = ['selModel','selConf','selMin','selRate','selBin','selMulti','selGap'];
 function save(){
   try{
     const set = {}; SETTINGS.forEach(k => set[k] = $(k).value);
@@ -545,14 +559,28 @@ function renderDoorUI(){
 $('btnDoor').onclick = () => { S.doorOn = !S.doorOn; save(); renderDoorUI(); renderTable(); if(!S.running) draw([]); };
 $('btnFlip').onclick = () => { S.doorFlip = !S.doorFlip; save(); if(!S.running) draw([]); };
 
+// 判定に使う線分の一覧。通行ラインは平行に複数本並べ、どれか1本でもまたげばカウント（同じ人は1回だけ）
+function segs(L){
+  const {a,b} = S.lines[L];
+  if(L!=='pass') return [{key:L, a, b}];
+  const n = +$('selMulti').value || 1, gap = +$('selGap').value || 0.14;
+  const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1, nx=-dy/len, ny=dx/len;
+  const out = [];
+  for(let i=0; i<n; i++){
+    const k = i - (n-1)/2;
+    const o = n>1 ? k * (gap / ((n-1)/2)) : 0;   // 両端の線が中央から ±gap の位置
+    out.push({key: k===0 ? 'pass' : 'pass'+k, a:{x:a.x+nx*o, y:a.y+ny*o}, b:{x:b.x+nx*o, y:b.y+ny*o}});
+  }
+  return out;
+}
 // 点Pを線分に投影した位置（0〜1 が線の端から端）
-function along(L, p){
-  const {a,b} = S.lines[L], dx=b.x-a.x, dy=b.y-a.y, l2=dx*dx+dy*dy||1;
+function along(g, p){
+  const {a,b} = g, dx=b.x-a.x, dy=b.y-a.y, l2=dx*dx+dy*dy||1;
   return ((p.x-a.x)*dx + (p.y-a.y)*dy) / l2;
 }
 // 点Pが線のどちら側か（-1 = A側, 1 = B側, 0 = 線の近く）
-function side(L, p){
-  const {a,b} = S.lines[L], dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
+function side(g, p){
+  const {a,b} = g, dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
   const dist = (dx*(p.y-a.y) - dy*(p.x-a.x)) / len;
   return Math.abs(dist) < 0.012 ? 0 : (dist < 0 ? -1 : 1);
 }
@@ -578,6 +606,10 @@ function drawLine(L, color, labs){
 function draw(tracks){
   const r = cv.getBoundingClientRect(), W=r.width, H=r.height;
   ctx.clearRect(0,0,W,H);
+  for(const g of segs('pass')) if(g.key!=='pass'){
+    ctx.save(); ctx.setLineDash([10,8]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(232,240,74,.75)';
+    ctx.beginPath(); ctx.moveTo(g.a.x*W, g.a.y*H); ctx.lineTo(g.b.x*W, g.b.y*H); ctx.stroke(); ctx.restore();
+  }
   drawLine('pass', '#e8f04a', [['A',-1],['B',1]]);
   if(S.doorOn) drawLine('door', '#6fe39a', [['外',outside()],['店内',-outside()]]);
   const now = performance.now();
@@ -609,19 +641,22 @@ function record(t, L, dir){
 function crossCheck(t, pt, prev){
   for(const L of activeLines()){
     if(L==='door' && t.cls!=='person') continue;   // 入店は歩行者のみ
-    const s = side(L, pt);
-    if(s===0) continue;
-    if(t.origin[L]===0) t.origin[L] = s;
-    // 最初に見えた側から反対側へ移ったら1回カウント（線の延長上ではなく、引いた線の範囲内だけ）
-    if(t.confirmed && s!==t.origin[L]){
-      const u = along(L, {x:(prev.x+pt.x)/2, y:(prev.y+pt.y)/2});
-      if(u >= -0.02 && u <= 1.02){
-        const dir = L==='door' ? (t.origin[L]===outside() ? 'in' : 'out') : (t.origin[L]<0 ? 'AB' : 'BA');
-        if(!t.counted[L].has(dir)){ t.counted[L].add(dir); record(t, L, dir); }
+    for(const g of segs(L)){
+      const K = g.key, s = side(g, pt);
+      if(s===0) continue;
+      if(!t.origin[K]) t.origin[K] = s;
+      // 最初に見えた側から反対側へ移ったらカウント（線の延長上ではなく、引いた線の範囲内だけ）
+      if(t.confirmed && s!==t.origin[K]){
+        const u = along(g, {x:(prev.x+pt.x)/2, y:(prev.y+pt.y)/2});
+        if(u >= -0.02 && u <= 1.02){
+          const dir = L==='door' ? (t.origin[K]===outside() ? 'in' : 'out') : (t.origin[K]<0 ? 'AB' : 'BA');
+          // 同じ番号の人は、何本またいでも同じ方向には1回だけ
+          if(!t.counted[L].has(dir)){ t.counted[L].add(dir); record(t, L, dir); }
+        }
+        t.origin[K] = s;   // 戻ってきた場合は逆方向として数えられる
       }
-      t.origin[L] = s;   // 戻ってきた場合は逆方向として数えられる
+      t.side[K] = s;
     }
-    t.side[L] = s;
   }
 }
 function update(dets){
@@ -644,8 +679,8 @@ function update(dets){
     d.cx = d.box[0]+d.box[2]/2;
     d.cy = d.cls==='person' ? d.box[1]+d.box[3]*0.8 : d.box[1]+d.box[3]/2;
   }
-  // 見失ってから時間が経ちすぎた人は先に外す（別人と取り違えないため）
-  S.tracks = S.tracks.filter(t => now - t.seen <= MAX_MISS_MS);
+  // 見失ってから時間が経ちすぎた人は先に外す（別人と取り違えないため）。外した人は「隠れた人」として少し覚えておく
+  retire(now);
   // 予測位置（速度）を使って近い順にマッチング。見失っている時間が長いほど探索範囲を広げる
   const pairs = [];
   S.tracks.forEach((t,i) => {
@@ -671,14 +706,48 @@ function update(dets){
     if(!t.confirmed && t.hits>=2 && d.score>=conf) t.confirmed = true;
     crossCheck(t, {x:d.cx, y:d.cy}, prev);
   }
-  S.tracks = S.tracks.filter(t => now - t.seen <= MAX_MISS_MS);
+  retire(now);
   det.forEach((d,j)=>{
     if(usedD.has(j) || d.score < conf) return;   // 新しい人は設定した信頼度以上のときだけ追加
-    const pt = {x:d.cx, y:d.cy}, origin = {}, sd = {};
-    for(const L of ['pass','door']){ origin[L] = side(L, pt); sd[L] = origin[L]; }
+    const pt = {x:d.cx, y:d.cy};
+    // 人の陰に隠れていた人が再び現れた場合は、同じ人として引き継ぐ
+    const old = revive(d, now);
+    if(old){
+      const t = {...old, cx:d.cx, cy:d.cy, box:d.box, seen:now, hits:old.hits+1};
+      S.tracks.push(t);
+      // 隠れている間に線を越えていたら、ここで数える
+      crossCheck(t, pt, {x:old.cx, y:old.cy});
+      return;
+    }
+    const origin = {}, sd = {};
+    for(const L of ['pass','door']) for(const g of segs(L)){ origin[g.key] = side(g, pt); sd[g.key] = origin[g.key]; }
     S.tracks.push({id:S.nextId++, cls:d.cls, cx:d.cx, cy:d.cy, vx:0, vy:0, box:d.box, seen:now, hits:1,
       confirmed:false, origin, side:sd, counted:{pass:new Set(), door:new Set()}});
   });
+}
+// ---------- 隠れた人の引き継ぎ ----------
+const HIDE_MS = 4000;   // 見失ってから4秒以内に近くに現れたら同じ人とみなす
+function retire(now){
+  S.lost = (S.lost||[]).filter(t => now - t.seen <= HIDE_MS);
+  S.tracks = S.tracks.filter(t => {
+    if(now - t.seen <= MAX_MISS_MS) return true;
+    if(t.confirmed) S.lost.push(t);
+    return false;
+  });
+}
+function revive(d, now){
+  let best = null, bd = Infinity;
+  for(const t of S.lost||[]){
+    if(t.cls!==d.cls) continue;
+    const dt = Math.min(now - t.seen, HIDE_MS) / 1000;
+    const px = t.cx + t.vx*Math.min(dt,2), py = t.cy + t.vy*Math.min(dt,2);   // 予測は2秒分まで
+    const dist = Math.hypot(px-d.cx, py-d.cy);
+    // 歩く速さ（画面幅の約1/3を1秒）で届く範囲
+    const gate = Math.max(0.12, Math.max(d.box[2], d.box[3])*0.9) + 0.35*dt;
+    if(dist < gate && dist < bd){ best = t; bd = dist; }
+  }
+  if(best) S.lost = S.lost.filter(t => t!==best);
+  return best;
 }
 function flash(kind){
   const el = document.querySelector({person:'.tile.ped', bicycle:'.tile.bike', door:'.tile.door'}[kind]);
@@ -748,7 +817,7 @@ async function startFile(f){
 }
 function begin(){
   $('ph').hidden = true; $('hud').hidden = false; S.vw = 0; fitStage();
-  S.running = true; S.runStart = Date.now(); S.tracks = []; S.lastT = 0;
+  S.running = true; S.runStart = Date.now(); S.tracks = []; S.lost = []; S.lastT = 0;
   $('btnStart').textContent = '停止'; $('btnStart').classList.add('stop');
   wakeLock(); loop();
 }
@@ -769,6 +838,7 @@ $('btnStart').onclick = () => S.running ? stop() : startCamera();
 $('btnFile').onclick = () => $('file').click();
 $('file').onchange = e => { const f = e.target.files[0]; if(f) startFile(f); e.target.value=''; };
 ['selModel','selConf','selMin','selRate'].forEach(k => $(k).onchange = save);
+['selMulti','selGap'].forEach(k => $(k).onchange = () => { save(); if(!S.running) draw([]); });
 $('selBin').onchange = () => { save(); renderTable(); };
 $('det').addEventListener('toggle', renderTable);
 $('btnCsv').onclick = () => {
