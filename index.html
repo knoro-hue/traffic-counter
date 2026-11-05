@@ -64,6 +64,9 @@ th{font:500 11px var(--sans);color:var(--muted)}
 .hint{font-size:12px;color:var(--muted);margin:0}
 .hint em{font-style:normal;color:var(--accent)}
 input[type=file]{display:none}
+.tile{transition:background .5s}
+.tile.hit{animation:hit .6s ease-out}
+@keyframes hit{from{background:#3a4210}to{background:var(--panel)}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -117,8 +120,8 @@ input[type=file]{display:none}
     </label>
     <label class="f">信頼度しきい値
       <select id="selConf">
-        <option value="0.35">0.35</option>
-        <option value="0.45" selected>0.45</option>
+        <option value="0.35" selected>0.35</option>
+        <option value="0.45">0.45</option>
         <option value="0.55">0.55</option>
       </select>
     </label>
@@ -261,15 +264,19 @@ function draw(tracks){
     ctx.fillStyle='rgba(0,0,0,.6)'; ctx.beginPath(); ctx.arc(x,y,13,0,Math.PI*2); ctx.fill();
     ctx.fillStyle='#e8f04a'; ctx.fillText(lab,x,y);
   }
+  const now = performance.now();
   for(const t of tracks){
-    if(t.miss>0) continue;
+    const lost = now - (t.seen||now);
+    if(lost > 700) continue;
+    ctx.globalAlpha = t.confirmed ? (lost > 150 ? 0.5 : 1) : 0.45;
     const col = t.cls==='person' ? '#4fd1e8' : '#ffb020';
     const [x,y,w,h] = t.box;
     ctx.lineWidth=2; ctx.strokeStyle=col; ctx.strokeRect(x*W,y*H,w*W,h*H);
     ctx.fillStyle=col; ctx.beginPath(); ctx.arc(t.cx*W,t.cy*H,4,0,Math.PI*2); ctx.fill();
     ctx.font='600 11px "IBM Plex Mono",monospace'; ctx.textAlign='left'; ctx.textBaseline='bottom';
-    ctx.fillText((t.cls==='person'?'歩':'自')+t.id, x*W+2, y*H-2);
+    ctx.fillText((t.cls==='person'?'歩':'自')+t.id+(t.side<0?' A側':t.side>0?' B側':''), x*W+2, y*H-2);
   }
+  ctx.globalAlpha = 1;
 }
 
 // ---------- 追跡と通過判定 ----------
@@ -278,43 +285,64 @@ function overlapRatio(p, q){ // pの面積に対する重なり
   const inter = Math.max(0,x2-x1)*Math.max(0,y2-y1);
   return inter / (p[2]*p[3] || 1);
 }
+const MAX_MISS_MS = 1500;   // 見失っても1.5秒は同じ人として保持
+const KEEP_SCORE = 0.25;    // 追跡中の人は低い信頼度でも継続（ちらつき防止）
 function update(dets){
-  const vw = video.videoWidth, vh = video.videoHeight, conf = +$('selConf').value;
-  let det = dets.filter(d => (d.class==='person'||d.class==='bicycle') && d.score>=conf)
-    .map(d => ({cls:d.class, box:[d.bbox[0]/vw, d.bbox[1]/vh, d.bbox[2]/vw, d.bbox[3]/vh]}));
-  const bikes = det.filter(d=>d.cls==='bicycle');
+  const vw = video.videoWidth, vh = video.videoHeight, conf = +$('selConf').value, now = performance.now();
+  let det = dets.filter(d => (d.class==='person'||d.class==='bicycle') && d.score>=KEEP_SCORE)
+    .map(d => ({cls:d.class, score:d.score, box:[d.bbox[0]/vw, d.bbox[1]/vh, d.bbox[2]/vw, d.bbox[3]/vh]}));
+  const bikes = det.filter(d=>d.cls==='bicycle' && d.score>=conf*0.8);
   // 自転車と重なる人物 = 乗っている人 → 自転車として扱うので人物からは除外
   det = det.filter(d => d.cls!=='person' || !bikes.some(b => overlapRatio(d.box,b.box) > 0.25 || overlapRatio(b.box,d.box) > 0.4));
   for(const d of det){
-    // 人物は足元寄り、自転車は中心を基準点にする
     d.cx = d.box[0]+d.box[2]/2;
     d.cy = d.cls==='person' ? d.box[1]+d.box[3]*0.8 : d.box[1]+d.box[3]/2;
   }
-  // 貪欲マッチング（同種別・近い順）
+  // 予測位置（速度）を使って近い順にマッチング。見失っている時間が長いほど探索範囲を広げる
   const pairs = [];
-  S.tracks.forEach((t,i) => det.forEach((d,j) => {
-    if(t.cls!==d.cls) return;
-    const dist = Math.hypot(t.cx-d.cx, t.cy-d.cy), gate = Math.max(0.08, Math.max(d.box[2],d.box[3])*0.9);
-    if(dist < gate) pairs.push([dist,i,j]);
-  }));
+  S.tracks.forEach((t,i) => {
+    const dt = Math.min(now - t.seen, MAX_MISS_MS) / 1000;
+    const px = t.cx + t.vx*dt, py = t.cy + t.vy*dt;
+    det.forEach((d,j) => {
+      if(t.cls!==d.cls) return;
+      const dist = Math.hypot(px-d.cx, py-d.cy);
+      const gate = Math.max(0.1, Math.max(d.box[2], d.box[3])*0.9) * (1 + dt*1.5);
+      if(dist < gate) pairs.push([dist,i,j]);
+    });
+  });
   pairs.sort((x,y)=>x[0]-y[0]);
   const usedT = new Set(), usedD = new Set();
   for(const [,i,j] of pairs){
     if(usedT.has(i)||usedD.has(j)) continue; usedT.add(i); usedD.add(j);
-    const t = S.tracks[i], d = det[j];
-    t.cx=d.cx; t.cy=d.cy; t.box=d.box; t.miss=0; t.age++;
-    const s = side(d);
+    const t = S.tracks[i], d = det[j], dt = Math.max(0.03, (now - t.seen)/1000);
+    t.vx = t.vx*0.6 + ((d.cx - t.cx)/dt)*0.4; t.vy = t.vy*0.6 + ((d.cy - t.cy)/dt)*0.4;
+    t.cx = d.cx; t.cy = d.cy;
+    t.box = t.box.map((v,k)=> v*0.5 + d.box[k]*0.5);   // 枠のブレを抑える
+    t.seen = now; t.hits++;
+    if(!t.confirmed && t.hits>=2 && d.score>=conf) t.confirmed = true;
+    const s = side({x:d.cx, y:d.cy});
     if(s!==0){
-      if(t.side!==0 && s!==t.side && t.age>=3){
-        const dir = t.side<0 ? 'AB' : 'BA';
-        if(!t.counted.has(dir)){ t.counted.add(dir); S.events.push({t:Date.now(), cls:t.cls, dir}); renderCounts(); save(); }
+      if(t.origin===0) t.origin = s;
+      // 最初に見えた側から反対側へ移ったら1回カウント
+      if(t.confirmed && s!==t.origin){
+        const dir = t.origin<0 ? 'AB' : 'BA';
+        if(!t.counted.has(dir)){ t.counted.add(dir); S.events.push({t:Date.now(), cls:t.cls, dir}); renderCounts(); flash(t.cls); save(); }
+        t.origin = s;   // 戻ってきた場合は逆方向として数えられる
       }
       t.side = s;
     }
   }
-  S.tracks.forEach((t,i)=>{ if(!usedT.has(i)) t.miss++; });
-  S.tracks = S.tracks.filter(t => t.miss <= 12);
-  det.forEach((d,j)=>{ if(!usedD.has(j)) S.tracks.push({id:S.nextId++, cls:d.cls, cx:d.cx, cy:d.cy, box:d.box, miss:0, age:1, side:side(d), counted:new Set()}); });
+  S.tracks = S.tracks.filter(t => now - t.seen <= MAX_MISS_MS);
+  det.forEach((d,j)=>{
+    if(usedD.has(j) || d.score < conf) return;   // 新しい人は設定した信頼度以上のときだけ追加
+    const s = side({x:d.cx, y:d.cy});
+    S.tracks.push({id:S.nextId++, cls:d.cls, cx:d.cx, cy:d.cy, vx:0, vy:0, box:d.box, seen:now, hits:1,
+      confirmed:false, origin:s, side:s, counted:new Set()});
+  });
+}
+function flash(cls){
+  const el = document.querySelector(cls==='person' ? '.tile.ped' : '.tile.bike');
+  el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
 }
 
 // ---------- ループ ----------
@@ -323,12 +351,12 @@ async function loop(){
   if(video.readyState >= 2 && !video.paused){
     try{
       if(video.videoWidth && (video.videoWidth!==S.vw || video.videoHeight!==S.vh)){ S.vw=video.videoWidth; S.vh=video.videoHeight; fitStage(); }
-      const dets = await S.model.detect(video, 30);
+      const dets = await S.model.detect(video, 30, KEEP_SCORE);
       update(dets); draw(S.tracks);
-      const live = S.tracks.filter(t=>!t.miss);
+      const live = S.tracks.filter(t=>t.confirmed && performance.now()-t.seen < 300);
       $('hud').textContent = `検出 歩行者${live.filter(t=>t.cls==='person').length} 自転車${live.filter(t=>t.cls==='bicycle').length}`;
       const now = performance.now(); if(S.lastT){ S.fps = S.fps*0.85 + (1000/(now-S.lastT))*0.15; } S.lastT = now;
-      setStatus(`計測中 <b>${S.fps.toFixed(1)}</b> fps · 追跡 ${S.tracks.filter(t=>!t.miss).length}`);
+      setStatus(`計測中 <b>${S.fps.toFixed(1)}</b> fps · 追跡 ${S.tracks.filter(t=>t.confirmed).length}`);
     }catch(e){ console.error(e); $('hud').textContent = '検出エラー: '+(e.message||e); }
   }
   if(video.ended){ stop(); setStatus('動画の最後まで計測しました'); return; }
@@ -406,7 +434,7 @@ let resetArm = null;
 $('btnReset').onclick = () => {
   if(!resetArm){ $('btnReset').textContent='もう一度押すと全件消去'; resetArm = setTimeout(()=>{ resetArm=null; $('btnReset').textContent='リセット'; }, 3000); return; }
   clearTimeout(resetArm); resetArm=null; $('btnReset').textContent='リセット';
-  S.events = []; S.tracks.forEach(t=>t.counted.clear()); save(); renderCounts();
+  S.events = []; S.tracks = []; save(); renderCounts();
 };
 
 load(); renderCounts(); fitStage(); draw([]);
