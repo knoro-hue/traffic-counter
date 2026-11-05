@@ -22,7 +22,7 @@
 [hidden]{display:none!important}
 html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);-webkit-tap-highlight-color:transparent;
-  padding:env(safe-area-inset-top,0) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0) max(12px,env(safe-area-inset-left,0px))}
+  padding:calc(env(safe-area-inset-top,0px) + 16px) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0) max(12px,env(safe-area-inset-left,0px))}
 .app{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px;padding-block:10px 24px}
 header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
 h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em}
@@ -106,7 +106,7 @@ input[type=file]{display:none}
 .site .acts{display:flex;gap:6px;padding-left:28px}
 .site .acts button,.site .acts .btnlink{padding:6px 10px;min-height:36px;font:500 12px var(--sans);display:inline-flex;align-items:center;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:8px;text-decoration:none}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;z-index:1000;
-  padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+  padding:calc(env(safe-area-inset-top,0px) + 16px) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
 .sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;width:min(420px,100%);display:flex;flex-direction:column;gap:10px}
 .sheet h3{margin:0;font-size:16px}
 .sheet input,.sheet textarea{font:16px var(--sans);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%}
@@ -120,6 +120,8 @@ input[type=file]{display:none}
 .bk button.primary{flex:0 1 auto}
 .site .acts{flex-wrap:wrap}
 .imgsheet img{width:100%;border-radius:8px;border:1px solid var(--line);display:block}
+.imgsheet .clearall{width:100%;background:none;border-color:rgba(255,107,94,.45);font-size:13px;min-height:40px}
+.imgsheet .clearall.armed{background:var(--danger);color:#1a0705}
 .imgsheet .note{font-size:12px;color:var(--muted);margin:0}
 
 .seg{display:flex;flex:1 1 200px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -164,7 +166,7 @@ button.icon span{display:block;width:18px;height:2px;background:var(--fg);border
 
 /* ===== 別画面 ===== */
 .screen{position:fixed;inset:0;z-index:900;background:var(--bg);display:flex;flex-direction:column;
-  padding:env(safe-area-inset-top,0px) max(12px,env(safe-area-inset-right,0px)) 0 max(12px,env(safe-area-inset-left,0px));
+  padding:calc(env(safe-area-inset-top,0px) + 16px) max(12px,env(safe-area-inset-right,0px)) 0 max(12px,env(safe-area-inset-left,0px));
   animation:slidein .18s ease-out}
 @keyframes slidein{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
 .shead{display:flex;align-items:center;justify-content:flex-start;gap:10px;padding-block:8px;border-bottom:1px solid var(--line);flex:none}
@@ -196,7 +198,7 @@ label.f select{width:100%}
   <header class="top">
     <h1>通行量カウンター</h1>
     <div class="status" id="status">モデル未読込</div>
-    <button class="hbtn" id="btnAreaMain">エリア画像</button>
+    <button class="hbtn" id="btnAreaMain">結果を共有</button>
     <button class="icon" id="btnMenu" aria-label="メニュー"><span></span><span></span><span></span></button>
   </header>
 
@@ -265,7 +267,7 @@ label.f select{width:100%}
   <div class="sbody">
     <nav class="menu">
       <button data-open="line"><b>計測ライン</b><span>線のリセット・入口ライン（入店率）</span></button>
-      <button data-open="map"><b>地点マップ</b><span id="menuMapSub">保存した地点・エリア画像</span></button>
+      <button data-open="map"><b>地点マップ</b><span id="menuMapSub">保存した地点・位置の調整</span></button>
       <button data-open="project"><b>プロジェクト</b><span id="menuProjSub">切替・新規・バックアップ</span></button>
       <button data-open="table"><b>時間帯別集計・CSV</b><span>今の計測の内訳と書き出し</span></button>
       <button data-open="check"><b>目視チェック</b><span>AIの数と目で数えた数を比べる</span></button>
@@ -304,7 +306,7 @@ label.f select{width:100%}
       <div class="pick-banner" id="pickBanner" hidden>地図をタップして場所を指定</div>
     </div>
     <div class="row">
-      <button class="on" id="btnAreaImg">チェックした地点を1枚の画像に</button>
+      <button class="on" id="btnAreaImg">チェックした地点を共有</button>
       <button id="btnSitesCsv">CSV保存</button>
     </div>
     <div class="sites" id="siteList"></div>
@@ -435,6 +437,7 @@ label.f select{width:100%}
       <button type="button" id="btnImgClose">閉じる</button>
       <button type="button" class="primary" id="btnImgShare">共有（メール等）</button>
     </div>
+    <button type="button" class="warn clearall" id="btnImgClear" hidden>この画像の地点をすべて削除</button>
   </div>
 </div>
 
@@ -1081,7 +1084,7 @@ function snapshot(){
     pedH:per(ped), bikeH:per(bike), door:S.doorOn || c.in>0, in:c.in, out:c.out, inRate: ped ? +(c.in/ped*100).toFixed(1) : null };
 }
 
-let pending = null, picking = false;
+let pending = null, picking = false, movingId = null;
 function openSave(){
   if(S.running) stop();   // 保存する数値を確定させる
   pending = {lat:null, lng:null, acc:null};
@@ -1177,6 +1180,11 @@ function initMap(){
     });
     layer = L.layerGroup().addTo(map);
     map.on('click', e => {
+      if(movingId){   // 保存済み地点の位置を直す
+        const s = sites.find(x => x.id===movingId); movingId = null; $('pickBanner').hidden = true;
+        if(s){ s.lat = e.latlng.lat; s.lng = e.latlng.lng; s.acc = null; saveSites(); renderSites(); markers.get(s.id)?.openPopup(); }
+        return;
+      }
       if(!picking || !pending) return;
       picking = false; $('pickBanner').hidden = true;
       pending.lat = e.latlng.lat; pending.lng = e.latlng.lng; pending.acc = null;
@@ -1225,7 +1233,7 @@ function renderSites(){
     <div class="site" data-id="${s.id}">
       <div class="nm-wrap"><input type="checkbox" data-act="sel" ${unselected.has(s.id)?'':'checked'} aria-label="エリア画像に含める"><button class="nm" data-act="go">${esc(s.name)}</button></div>
       <div class="meta">${fmtDT(s.from).slice(5)} · ${fmtSec(s.sec)} · 歩行者 ${s.pedH==null?'—':s.pedH+'人/時'} · 自転車 ${s.bikeH==null?'—':s.bikeH+'台/時'}${s.door&&s.inRate!=null?' · 入店率 '+s.inRate+'%':''}</div>
-      <div class="acts"><button data-act="img">画像</button><a class="btnlink" href="${gmapUrl(s)}" target="_blank" rel="noopener">Googleマップ</a><button data-act="rename">名前</button><button data-act="move">移動</button><button class="warn" data-act="del">削除</button></div>
+      <div class="acts"><button data-act="img">画像</button><a class="btnlink" href="${gmapUrl(s)}" target="_blank" rel="noopener">Googleマップ</a><button data-act="pos">位置</button><button data-act="rename">名前</button><button data-act="move">移動</button><button class="warn" data-act="del">削除</button></div>
     </div>`).join('');
   drawMarkers();
 }
@@ -1239,6 +1247,13 @@ $('siteList').addEventListener('click', e => {
   const act = btn.dataset.act;
   if(act==='go'){ initMap(); if(!map) return; map.setView([s.lat, s.lng], 17); markers.get(id)?.openPopup(); $('scr-map').querySelector('.sbody').scrollTo({top:0, behavior:'smooth'}); }
   if(act==='img'){ makeImage(s, btn); return; }
+  if(act==='pos'){
+    initMap(); if(!map) return;
+    movingId = id; map.setView([s.lat, s.lng], 18);
+    $('pickBanner').textContent = `地図をタップして「${s.name}」の場所を指定`; $('pickBanner').hidden = false;
+    $('scr-map').querySelector('.sbody').scrollTo({top:0, behavior:'smooth'});
+    return;
+  }
   if(act==='move'){
     const others = projects.filter(p => p.id!==curProj);
     if(!others.length){ alert('移動先のプロジェクトがありません。先に「新規」でプロジェクトを作ってください。'); return; }
@@ -1349,6 +1364,7 @@ async function makeImage(s, btn, noTiles){
     if(lastImg?.url) URL.revokeObjectURL(lastImg.url);
     const fname = `通行量_${s.name.replace(/[\\/:*?"<>|\s]/g,'_')}_${fmtDT(s.from).slice(0,10)}.png`;
     lastImg = {blob, url:URL.createObjectURL(blob), fname, title:s.name, text:shareText(s)};
+    $('btnImgClear').hidden = true;
     $('imgPreview').src = lastImg.url;
     $('imgTitle').textContent = s.name;
     const canFile = !!(navigator.canShare && navigator.canShare({files:[new File([blob], fname, {type:'image/png'})]}));
@@ -1368,6 +1384,21 @@ function shareText(s){
     + `場所（Googleマップ）：${gmapUrl(s)}`;
 }
 $('btnImgClose').onclick = () => { $('imgModal').hidden = true; };
+// 共有画像に含めた地点をまとめて削除（次のエリア調査を始めるとき用。2回押しで実行）
+$('btnImgClear').onclick = () => {
+  const b = $('btnImgClear'), ids = new Set(lastImg?.ids || []);
+  if(!ids.size) return;
+  if(!b._arm){
+    b.textContent = `もう一度押すと${ids.size}地点を削除`; b.classList.add('armed');
+    b._arm = setTimeout(()=>{ b._arm = null; b.textContent = 'この画像の地点をすべて削除'; b.classList.remove('armed'); }, 3000);
+    return;
+  }
+  clearTimeout(b._arm); b._arm = null; b.textContent = 'この画像の地点をすべて削除'; b.classList.remove('armed');
+  sites = sites.filter(s => !ids.has(s.id)); saveSites(); unselected.clear(); renderSites(); renderBackup();
+  $('imgModal').hidden = true;
+  setStatus(`${ids.size}地点を削除しました`);
+};
+
 $('btnImgShare').onclick = async () => {
   if(!lastImg) return;
   const file = new File([lastImg.blob], lastImg.fname, {type:'image/png'});
@@ -1569,9 +1600,10 @@ async function makeAreaImage(list, btn, noTiles){
     if(lastImg?.url) URL.revokeObjectURL(lastImg.url);
     const text = `${projName()}（${list.length}地点）\n` + list.map((s,i) =>
       `${i+1}. ${s.name}：歩行者 ${s.pedH ?? '—'}人/時・自転車 ${s.bikeH ?? '—'}台/時${s.door ? `・入店率 ${s.inRate ?? '—'}%` : ''}\n   ${gmapUrl(s)}`).join('\n');
-    lastImg = {blob, url:URL.createObjectURL(blob), fname:`${safeName(projName())}_${list.length}地点.png`, title:projName(), text};
+    lastImg = {blob, url:URL.createObjectURL(blob), fname:`${safeName(projName())}_${list.length}地点.png`, title:projName(), text, ids:list.map(x=>x.id)};
+    $('btnImgClear').hidden = false;
     $('imgPreview').src = lastImg.url;
-    $('imgTitle').textContent = `エリア画像（${list.length}地点）`;
+    $('imgTitle').textContent = `調査結果（${list.length}地点）`;
     const canFile = !!(navigator.canShare && navigator.canShare({files:[new File([blob], lastImg.fname, {type:'image/png'})]}));
     $('btnImgShare').textContent = canFile ? '共有（メール等）' : '画像を保存';
     $('imgNote').textContent = (noTiles ? '地図を画像に含められなかったため、位置は本文のGoogleマップのリンクで伝わります。' : '') + '「共有」からメールやTeamsに添付できます。本文に各地点の数値とGoogleマップのリンクが入ります。';
@@ -1743,9 +1775,9 @@ function openScreen(name){
   if(name==='table') renderTable();
   if(name==='check') renderCheck();
   if(name==='menu') renderMenu();
-  if(name!=='map'){ picking = false; $('pickBanner').hidden = true; }
+  if(name!=='map'){ picking = false; movingId = null; $('pickBanner').hidden = true; }
 }
-function closeScreens(){ document.querySelectorAll('.screen').forEach(el => el.hidden = true); picking = false; $('pickBanner').hidden = true; }
+function closeScreens(){ document.querySelectorAll('.screen').forEach(el => el.hidden = true); picking = false; movingId = null; $('pickBanner').hidden = true; }
 function renderMenu(){
   $('menuMapSub').textContent = `${projName()}・${projSites().length}地点`;
   $('menuProjSub').textContent = `${projName()}（全${projects.length}件）・バックアップ`;
