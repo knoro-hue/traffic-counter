@@ -521,6 +521,9 @@ function crossCheck(t, pt, prev){
 }
 function update(dets){
   const vw = video.videoWidth, vh = video.videoHeight, conf = +$('selConf').value, now = performance.now();
+  // 車・バイク等は数えない。ただしバイクに乗っている人や車内の人を歩行者と誤認しないよう、重なる人物を除外するのに使う
+  const vehicles = dets.filter(d => ['motorcycle','car','bus','truck'].includes(d.class) && d.score>=0.3)
+    .map(d => [d.bbox[0]/vw, d.bbox[1]/vh, d.bbox[2]/vw, d.bbox[3]/vh]);
   let det = dets.filter(d => (d.class==='person'||d.class==='bicycle') && d.score>=KEEP_SCORE)
     .map(d => ({cls:d.class, score:d.score, box:[d.bbox[0]/vw, d.bbox[1]/vh, d.bbox[2]/vw, d.bbox[3]/vh]}));
   const minH = +$('selMin').value;
@@ -529,6 +532,9 @@ function update(dets){
   const bikes = det.filter(d=>d.cls==='bicycle' && d.score>=conf*0.8);
   // 自転車と重なる人物 = 乗っている人 → 自転車として扱うので人物からは除外
   det = det.filter(d => d.cls!=='person' || !bikes.some(b => overlapRatio(d.box,b.box) > 0.25 || overlapRatio(b.box,d.box) > 0.4));
+  det = det.filter(d => d.cls!=='person' || !vehicles.some(v => overlapRatio(d.box,v) > 0.3));
+  // バイクを自転車と見間違えた枠も除外
+  det = det.filter(d => d.cls!=='bicycle' || !vehicles.some(v => overlapRatio(d.box,v) > 0.5));
   for(const d of det){
     d.cx = d.box[0]+d.box[2]/2;
     d.cy = d.cls==='person' ? d.box[1]+d.box[3]*0.8 : d.box[1]+d.box[3]/2;
