@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>通行量カウンター</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* Layout: カメラ映像を上に、その下に4つの集計カウンターと操作列。屋外で読みやすい暗色・高コントラスト固定。 */
+:root{
+  --bg:#101214; --panel:#1a1d21; --line:#2c3137; --fg:#eef1f3; --muted:#9aa3ab;
+  --ped:#4fd1e8; --bike:#ffb020; --accent:#e8f04a; --danger:#ff6b5e;
+  --sans:"IBM Plex Sans JP",system-ui,-apple-system,"Hiragino Sans",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);-webkit-tap-highlight-color:transparent;
+  padding:env(safe-area-inset-top,0) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0) max(12px,env(safe-area-inset-left,0px))}
+.app{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px;padding-block:10px 24px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em}
+.status{font:500 12px var(--mono);color:var(--muted)}
+.status b{color:var(--accent);font-weight:600}
+.stagewrap{background:#000;border-radius:10px;overflow:hidden;display:flex;justify-content:center;align-items:center;min-height:200px;position:relative}
+.stage{position:relative;width:100%;max-height:56vh;aspect-ratio:16/9;max-width:100%}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%}
+.stage canvas{touch-action:none}
+.placeholder{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);padding:16px;font-size:14px}
+.counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.tile .k{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.tile .k i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.ped .k i{background:var(--ped)} .bike .k i{background:var(--bike)}
+.tile .dirs{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+.tile .dir{display:flex;flex-direction:column}
+.tile .dir span{font-size:11px;color:var(--muted);letter-spacing:.05em}
+.tile .dir strong{font:600 30px/1.1 var(--mono);font-variant-numeric:tabular-nums}
+.ped strong{color:var(--ped)} .bike strong{color:var(--bike)}
+.tile .sum{font:500 12px var(--mono);color:var(--muted)}
+.controls{display:flex;flex-wrap:wrap;gap:8px}
+button,select{font:500 14px var(--sans);color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-height:44px}
+button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:#14160a;border-color:var(--accent);font-weight:700;flex:1 1 140px}
+button.primary.stop{background:var(--danger);border-color:var(--danger);color:#1a0705}
+button.warn{color:var(--danger)}
+button:disabled{opacity:.45}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);letter-spacing:.04em}
+details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+summary{cursor:pointer;font-weight:500}
+.tablewrap{overflow-x:auto;margin-top:8px}
+table{border-collapse:collapse;width:100%;font:500 13px var(--mono);font-variant-numeric:tabular-nums}
+th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font:500 11px var(--sans);color:var(--muted)}
+.hint{font-size:12px;color:var(--muted);margin:0}
+.hint em{font-style:normal;color:var(--accent)}
+input[type=file]{display:none}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>通行量カウンター</h1>
+    <div class="status" id="status">モデル未読込</div>
+  </header>
+
+  <div class="stagewrap">
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="placeholder" id="ph">「開始」でカメラを起動します<br>黄色の線の端をドラッグして計測ラインを置いてください</div>
+    </div>
+  </div>
+
+  <div class="counts">
+    <div class="tile ped">
+      <div class="k"><i></i>歩行者</div>
+      <div class="dirs">
+        <div class="dir"><span>A→B</span><strong id="c-person-AB">0</strong></div>
+        <div class="dir"><span>B→A</span><strong id="c-person-BA">0</strong></div>
+      </div>
+      <div class="sum">計 <span id="t-person">0</span> 人</div>
+    </div>
+    <div class="tile bike">
+      <div class="k"><i></i>自転車</div>
+      <div class="dirs">
+        <div class="dir"><span>A→B</span><strong id="c-bicycle-AB">0</strong></div>
+        <div class="dir"><span>B→A</span><strong id="c-bicycle-BA">0</strong></div>
+      </div>
+      <div class="sum">計 <span id="t-bicycle">0</span> 台</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="btnStart">開始</button>
+    <button id="btnFile">録画動画で計測</button>
+    <input type="file" id="file" accept="video/*">
+  </div>
+
+  <div class="row">
+    <label class="f">検出精度
+      <select id="selModel">
+        <option value="lite_mobilenet_v2">標準（速い）</option>
+        <option value="mobilenet_v2">高精度（重い）</option>
+      </select>
+    </label>
+    <label class="f">信頼度しきい値
+      <select id="selConf">
+        <option value="0.35">0.35</option>
+        <option value="0.45" selected>0.45</option>
+        <option value="0.55">0.55</option>
+      </select>
+    </label>
+    <label class="f">集計単位
+      <select id="selBin">
+        <option value="5">5分</option>
+        <option value="15" selected>15分</option>
+        <option value="60">60分</option>
+      </select>
+    </label>
+    <label class="f">ライン
+      <select id="selLine">
+        <option value="">（ドラッグで調整）</option>
+        <option value="h">横一直線にリセット</option>
+        <option value="v">縦一直線にリセット</option>
+      </select>
+    </label>
+  </div>
+
+  <details id="det">
+    <summary>時間帯別集計</summary>
+    <div class="tablewrap"><table id="tbl"></table></div>
+  </details>
+
+  <div class="row">
+    <button id="btnCsv">CSV保存</button>
+    <button id="btnCopy">CSVをコピー</button>
+    <button class="warn" id="btnReset">リセット</button>
+  </div>
+
+  <p class="hint">iPhoneは歩道に対して<em>斜め上から</em>固定すると精度が上がります。自転車に乗っている人は自転車として1回だけ数えます。計測中は画面を消さないでください（自動で消灯を抑止します）。</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const video = $('video'), cv = $('overlay'), ctx = cv.getContext('2d'), stage = $('stage');
+const S = { model:null, modelName:null, running:false, stream:null, wake:null, fileUrl:null,
+  line:{a:{x:0.1,y:0.6}, b:{x:0.9,y:0.6}}, tracks:[], nextId:1, events:[], lastT:0, fps:0 };
+
+// ---------- 保存 ----------
+const KEY = 'tc-state-v1';
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify({events:S.events, line:S.line, bin:$('selBin').value, conf:$('selConf').value, model:$('selModel').value})); }catch(e){} }
+function load(){ try{ const d = JSON.parse(localStorage.getItem(KEY)||'null'); if(!d) return;
+  S.events = d.events||[]; if(d.line) S.line = d.line;
+  if(d.bin) $('selBin').value = d.bin; if(d.conf) $('selConf').value = d.conf; if(d.model) $('selModel').value = d.model; }catch(e){} }
+
+// ---------- 表示 ----------
+function setStatus(html){ $('status').innerHTML = html; }
+function totals(){
+  const c = {person:{AB:0,BA:0}, bicycle:{AB:0,BA:0}};
+  for(const e of S.events) c[e.cls][e.dir]++;
+  return c;
+}
+function renderCounts(){
+  const c = totals();
+  for(const k of ['person','bicycle']){
+    $('c-'+k+'-AB').textContent = c[k].AB; $('c-'+k+'-BA').textContent = c[k].BA;
+    $('t-'+k).textContent = c[k].AB + c[k].BA;
+  }
+  if($('det').open) renderTable();
+}
+const pad = n => String(n).padStart(2,'0');
+const fmtDT = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const fmtHM = t => { const d = new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+function bins(){
+  const m = +$('selBin').value * 60000, map = new Map();
+  for(const e of S.events){
+    const k = Math.floor(e.t/m)*m;
+    if(!map.has(k)) map.set(k,{pAB:0,pBA:0,bAB:0,bBA:0});
+    const r = map.get(k); r[(e.cls==='person'?'p':'b')+e.dir]++;
+  }
+  return [...map.entries()].sort((a,b)=>a[0]-b[0]).map(([k,r])=>({start:k,end:k+m,...r}));
+}
+function renderTable(){
+  const rows = bins();
+  let h = '<tr><th>時間帯</th><th>歩行者A→B</th><th>歩行者B→A</th><th>自転車A→B</th><th>自転車B→A</th><th>合計</th></tr>';
+  if(!rows.length) h += '<tr><td colspan="6" style="text-align:left;color:var(--muted)">まだ記録がありません</td></tr>';
+  for(const r of rows) h += `<tr><td>${fmtHM(r.start)}–${fmtHM(r.end)}</td><td>${r.pAB}</td><td>${r.pBA}</td><td>${r.bAB}</td><td>${r.bBA}</td><td>${r.pAB+r.pBA+r.bAB+r.bBA}</td></tr>`;
+  $('tbl').innerHTML = h;
+}
+function csv(){
+  const lines = ['開始,終了,歩行者A→B,歩行者B→A,自転車A→B,自転車B→A,合計'];
+  for(const r of bins()) lines.push([fmtDT(r.start),fmtDT(r.end),r.pAB,r.pBA,r.bAB,r.bBA,r.pAB+r.pBA+r.bAB+r.bBA].join(','));
+  lines.push('', '時刻,種別,方向');
+  for(const e of S.events){ const d=new Date(e.t); lines.push(`${fmtDT(e.t)}:${pad(d.getSeconds())},${e.cls==='person'?'歩行者':'自転車'},${e.dir==='AB'?'A→B':'B→A'}`); }
+  return '﻿' + lines.join('\r\n');
+}
+
+// ---------- ステージ・ライン ----------
+function fitStage(){
+  const w = video.videoWidth || 16, h = video.videoHeight || 9;
+  stage.style.aspectRatio = `${w}/${h}`;
+  const r = stage.getBoundingClientRect(), dpr = window.devicePixelRatio||1;
+  cv.width = Math.round(r.width*dpr); cv.height = Math.round(r.height*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', ()=>{ fitStage(); draw([]); });
+let drag = null;
+function ptr(e){ const r = cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height, w:r.width, h:r.height}; }
+cv.addEventListener('pointerdown', e => {
+  const p = ptr(e), L = S.line;
+  const d = k => Math.hypot((L[k].x-p.x)*p.w, (L[k].y-p.y)*p.h);
+  const k = d('a') < d('b') ? 'a' : 'b';
+  if(d(k) < 44){ drag = k; cv.setPointerCapture(e.pointerId); }
+});
+cv.addEventListener('pointermove', e => { if(!drag) return; const p = ptr(e);
+  S.line[drag] = {x:Math.min(1,Math.max(0,p.x)), y:Math.min(1,Math.max(0,p.y))}; if(!S.running) draw([]); });
+cv.addEventListener('pointerup', ()=>{ if(drag){ drag=null; save(); } });
+$('selLine').addEventListener('change', e => {
+  if(e.target.value==='h') S.line = {a:{x:0.05,y:0.6}, b:{x:0.95,y:0.6}};
+  if(e.target.value==='v') S.line = {a:{x:0.5,y:0.05}, b:{x:0.5,y:0.95}};
+  e.target.value=''; save(); if(!S.running) draw([]);
+});
+// 点Pが線のどちら側か（-1 = A側, 1 = B側, 0 = 線の近く）
+function side(p){
+  const {a,b} = S.line, dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
+  const dist = (dx*(p.y-a.y) - dy*(p.x-a.x)) / len;
+  return Math.abs(dist) < 0.012 ? 0 : (dist < 0 ? -1 : 1);
+}
+
+function draw(tracks){
+  const r = cv.getBoundingClientRect(), W=r.width, H=r.height;
+  ctx.clearRect(0,0,W,H);
+  const {a,b} = S.line, ax=a.x*W, ay=a.y*H, bx=b.x*W, by=b.y*H;
+  ctx.lineWidth = 4; ctx.strokeStyle = '#e8f04a'; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+  for(const [x,y] of [[ax,ay],[bx,by]]){ ctx.beginPath(); ctx.arc(x,y,11,0,Math.PI*2); ctx.fillStyle='#e8f04a'; ctx.fill(); }
+  // A/B ラベル（線の法線方向）
+  const mx=(ax+bx)/2, my=(ay+by)/2, len=Math.hypot(bx-ax,by-ay)||1, nx=-(by-ay)/len, ny=(bx-ax)/len;
+  ctx.font = '700 16px "IBM Plex Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const [lab,s] of [['A',-1],['B',1]]){
+    const x=mx+nx*28*s, y=my+ny*28*s;
+    ctx.fillStyle='rgba(0,0,0,.6)'; ctx.beginPath(); ctx.arc(x,y,13,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#e8f04a'; ctx.fillText(lab,x,y);
+  }
+  for(const t of tracks){
+    if(t.miss>0) continue;
+    const col = t.cls==='person' ? '#4fd1e8' : '#ffb020';
+    const [x,y,w,h] = t.box;
+    ctx.lineWidth=2; ctx.strokeStyle=col; ctx.strokeRect(x*W,y*H,w*W,h*H);
+    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(t.cx*W,t.cy*H,4,0,Math.PI*2); ctx.fill();
+    ctx.font='600 11px "IBM Plex Mono",monospace'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText((t.cls==='person'?'歩':'自')+t.id, x*W+2, y*H-2);
+  }
+}
+
+// ---------- 追跡と通過判定 ----------
+function overlapRatio(p, q){ // pの面積に対する重なり
+  const x1=Math.max(p[0],q[0]), y1=Math.max(p[1],q[1]), x2=Math.min(p[0]+p[2],q[0]+q[2]), y2=Math.min(p[1]+p[3],q[1]+q[3]);
+  const inter = Math.max(0,x2-x1)*Math.max(0,y2-y1);
+  return inter / (p[2]*p[3] || 1);
+}
+function update(dets){
+  const vw = video.videoWidth, vh = video.videoHeight, conf = +$('selConf').value;
+  let det = dets.filter(d => (d.class==='person'||d.class==='bicycle') && d.score>=conf)
+    .map(d => ({cls:d.class, box:[d.bbox[0]/vw, d.bbox[1]/vh, d.bbox[2]/vw, d.bbox[3]/vh]}));
+  const bikes = det.filter(d=>d.cls==='bicycle');
+  // 自転車と重なる人物 = 乗っている人 → 自転車として扱うので人物からは除外
+  det = det.filter(d => d.cls!=='person' || !bikes.some(b => overlapRatio(d.box,b.box) > 0.25 || overlapRatio(b.box,d.box) > 0.4));
+  for(const d of det){
+    // 人物は足元寄り、自転車は中心を基準点にする
+    d.cx = d.box[0]+d.box[2]/2;
+    d.cy = d.cls==='person' ? d.box[1]+d.box[3]*0.8 : d.box[1]+d.box[3]/2;
+  }
+  // 貪欲マッチング（同種別・近い順）
+  const pairs = [];
+  S.tracks.forEach((t,i) => det.forEach((d,j) => {
+    if(t.cls!==d.cls) return;
+    const dist = Math.hypot(t.cx-d.cx, t.cy-d.cy), gate = Math.max(0.08, Math.max(d.box[2],d.box[3])*0.9);
+    if(dist < gate) pairs.push([dist,i,j]);
+  }));
+  pairs.sort((x,y)=>x[0]-y[0]);
+  const usedT = new Set(), usedD = new Set();
+  for(const [,i,j] of pairs){
+    if(usedT.has(i)||usedD.has(j)) continue; usedT.add(i); usedD.add(j);
+    const t = S.tracks[i], d = det[j];
+    t.cx=d.cx; t.cy=d.cy; t.box=d.box; t.miss=0; t.age++;
+    const s = side(d);
+    if(s!==0){
+      if(t.side!==0 && s!==t.side && t.age>=3){
+        const dir = t.side<0 ? 'AB' : 'BA';
+        if(!t.counted.has(dir)){ t.counted.add(dir); S.events.push({t:Date.now(), cls:t.cls, dir}); renderCounts(); save(); }
+      }
+      t.side = s;
+    }
+  }
+  S.tracks.forEach((t,i)=>{ if(!usedT.has(i)) t.miss++; });
+  S.tracks = S.tracks.filter(t => t.miss <= 12);
+  det.forEach((d,j)=>{ if(!usedD.has(j)) S.tracks.push({id:S.nextId++, cls:d.cls, cx:d.cx, cy:d.cy, box:d.box, miss:0, age:1, side:side(d), counted:new Set()}); });
+}
+
+// ---------- ループ ----------
+async function loop(){
+  if(!S.running) return;
+  if(video.readyState >= 2 && !video.paused){
+    try{
+      const dets = await S.model.detect(video, 30);
+      update(dets); draw(S.tracks);
+      const now = performance.now(); if(S.lastT){ S.fps = S.fps*0.85 + (1000/(now-S.lastT))*0.15; } S.lastT = now;
+      setStatus(`計測中 <b>${S.fps.toFixed(1)}</b> fps · 追跡 ${S.tracks.filter(t=>!t.miss).length}`);
+    }catch(e){ console.error(e); }
+  }
+  if(video.ended){ stop(); setStatus('動画の最後まで計測しました'); return; }
+  requestAnimationFrame(loop);
+}
+
+async function ensureModel(){
+  const name = $('selModel').value;
+  if(S.model && S.modelName===name) return;
+  setStatus('AIモデルを読込中…（初回は数十秒）');
+  try{ await tf.setBackend('webgl'); }catch(e){}
+  await tf.ready();
+  S.model = await cocoSsd.load({base:name}); S.modelName = name;
+}
+async function wakeLock(){ try{ S.wake = await navigator.wakeLock?.request('screen'); }catch(e){} }
+document.addEventListener('visibilitychange', ()=>{ if(S.running && document.visibilityState==='visible') wakeLock(); });
+
+async function startCamera(){
+  if(!navigator.mediaDevices?.getUserMedia){ setStatus('カメラが使えません（https で開いてください）'); return; }
+  $('btnStart').disabled = true;
+  try{
+    await ensureModel();
+    S.stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}}});
+    video.srcObject = S.stream; video.removeAttribute('src');
+    await video.play();
+    begin();
+  }catch(e){
+    setStatus(e.name==='NotAllowedError' ? 'カメラの許可が必要です（設定 › Safari › カメラ）' : 'カメラを開けませんでした：'+e.message);
+  }finally{ $('btnStart').disabled = false; }
+}
+async function startFile(f){
+  stop();
+  try{
+    await ensureModel();
+    if(S.fileUrl) URL.revokeObjectURL(S.fileUrl);
+    S.fileUrl = URL.createObjectURL(f);
+    video.srcObject = null; video.src = S.fileUrl;
+    await video.play();
+    begin();
+  }catch(e){ setStatus('動画を再生できませんでした：'+e.message); }
+}
+function begin(){
+  $('ph').hidden = true; fitStage();
+  S.running = true; S.tracks = []; S.lastT = 0;
+  $('btnStart').textContent = '停止'; $('btnStart').classList.add('stop');
+  wakeLock(); loop();
+}
+function stop(){
+  S.running = false;
+  if(S.stream){ S.stream.getTracks().forEach(t=>t.stop()); S.stream=null; }
+  if(!video.ended) video.pause();
+  try{ S.wake?.release(); }catch(e){} S.wake=null;
+  $('btnStart').textContent = '開始'; $('btnStart').classList.remove('stop');
+  setStatus('停止中'); draw([]);
+}
+
+// ---------- ボタン ----------
+$('btnStart').onclick = () => S.running ? stop() : startCamera();
+$('btnFile').onclick = () => $('file').click();
+$('file').onchange = e => { const f = e.target.files[0]; if(f) startFile(f); e.target.value=''; };
+$('selModel').onchange = save; $('selConf').onchange = save;
+$('selBin').onchange = () => { save(); renderTable(); };
+$('det').addEventListener('toggle', renderTable);
+$('btnCsv').onclick = () => {
+  const blob = new Blob([csv()], {type:'text/csv'}), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `通行量_${fmtDT(Date.now()).replace(/[: ]/g,'-')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+};
+$('btnCopy').onclick = async () => {
+  try{ await navigator.clipboard.writeText(csv().slice(1)); $('btnCopy').textContent='コピーしました'; }
+  catch(e){ $('btnCopy').textContent='コピーできませんでした'; }
+  setTimeout(()=>$('btnCopy').textContent='CSVをコピー', 1800);
+};
+let resetArm = null;
+$('btnReset').onclick = () => {
+  if(!resetArm){ $('btnReset').textContent='もう一度押すと全件消去'; resetArm = setTimeout(()=>{ resetArm=null; $('btnReset').textContent='リセット'; }, 3000); return; }
+  clearTimeout(resetArm); resetArm=null; $('btnReset').textContent='リセット';
+  S.events = []; S.tracks.forEach(t=>t.counted.clear()); save(); renderCounts();
+};
+
+load(); renderCounts(); fitStage(); draw([]);
+setStatus(S.events.length ? `前回の記録 ${S.events.length} 件を復元` : '待機中');
+})();
+</script>
+</body>
+</html>
