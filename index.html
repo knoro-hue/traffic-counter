@@ -243,14 +243,27 @@ input[type=file]{display:none}
 
   <section class="card">
     <div class="card-head">
-      <h2>地点の記録</h2>
+      <h2>プロジェクトと地点の記録</h2>
       <button class="on" id="btnSaveSite">この地点を保存</button>
     </div>
-    <p class="hint">今の計測結果を、現在地（GPS）と地点名を付けて保存します。保存した地点は下のマップで見られます。保存先はこのiPhoneの中だけです。</p>
+    <div class="row">
+      <label class="f" style="flex:1 1 200px">保存先のプロジェクト
+        <select id="selProject"></select>
+      </label>
+      <button id="btnProjNew">新規</button>
+      <button id="btnProjRename">名前変更</button>
+      <button class="warn" id="btnProjDel">削除</button>
+    </div>
+    <div class="row">
+      <button id="btnProjExport">このプロジェクトを書き出し</button>
+      <button id="btnProjImport">書き出したファイルを読み込み</button>
+      <input type="file" id="projFile" accept=".json,application/json">
+    </div>
+    <p class="hint">計測結果を、現在地（GPS）と地点名を付けて選んだプロジェクトに保存します。マップ・画像・CSVはプロジェクトごとに作られます。データはこのiPhoneの中だけに保存されるので、大事なプロジェクトは「書き出し」でバックアップしてください。書き出したファイルは別のiPhoneでも読み込めます。</p>
   </section>
 
   <details id="mapDet">
-    <summary>地点マップ（<span id="siteCount">0</span>地点）</summary>
+    <summary>地点マップ：<span id="projLabel"></span>（<span id="siteCount">0</span>地点）</summary>
     <div class="mapwrap">
       <div id="map"></div>
       <div class="pick-banner" id="pickBanner" hidden>地図をタップして場所を指定</div>
@@ -258,7 +271,7 @@ input[type=file]{display:none}
     <div class="sites" id="siteList"></div>
     <div class="row" style="margin-top:8px">
       <button class="on" id="btnAreaImg">チェックした地点を1枚の画像に</button>
-      <button id="btnSitesCsv">地点一覧をCSV保存</button>
+      <button id="btnSitesCsv">プロジェクトをCSV保存</button>
     </div>
   </details>
 
@@ -774,6 +787,17 @@ const SITES_KEY = 'tc-sites-v1';
 let sites = [];
 try{ sites = JSON.parse(localStorage.getItem(SITES_KEY)||'[]'); }catch(e){ sites = []; }
 const saveSites = () => { try{ localStorage.setItem(SITES_KEY, JSON.stringify(sites)); }catch(e){} };
+// プロジェクト（エリア調査ごとのまとまり）
+const PROJ_KEY = 'tc-projects-v1';
+let projects = [], curProj = null;
+try{ const d = JSON.parse(localStorage.getItem(PROJ_KEY)||'null'); if(d){ projects = d.projects||[]; curProj = d.current; } }catch(e){}
+if(!projects.length) projects = [{id:1, name:'プロジェクト1', created:Date.now()}];
+if(!projects.some(p=>p.id===curProj)) curProj = projects[0].id;
+if(sites.some(s=>!s.projectId)){ sites.forEach(s=>{ if(!s.projectId) s.projectId = projects[0].id; }); saveSites(); }
+const saveProjects = () => { try{ localStorage.setItem(PROJ_KEY, JSON.stringify({projects, current:curProj})); }catch(e){} };
+const projSites = () => sites.filter(s => s.projectId===curProj);
+const projName = () => (projects.find(p=>p.id===curProj)||{}).name || '';
+const safeName = t => t.replace(/[\\/:*?"<>|\s]/g,'_');
 const esc = t => String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtSec = sec => `${Math.floor(sec/3600)}:${pad(Math.floor(sec/60)%60)}:${pad(sec%60)}`;
 
@@ -781,7 +805,15 @@ function snapshot(){
   const c = totals(), sec = Math.floor(liveMs()/1000), per = n => sec>=1 ? +(n*3600/sec).toFixed(1) : null;
   const ped = c.person.AB + c.person.BA, bike = c.bicycle.AB + c.bicycle.BA;
   const first = S.events.length ? S.events[0].t : Date.now();
-  return { sec, from:first, ped, bike, pedAB:c.person.AB, pedBA:c.person.BA, bikeAB:c.bicycle.AB, bikeBA:c.bicycle.BA,
+  // 15分ごとの内訳も残しておく（後から時間帯別に見られるように）
+  const bm = 900000, bmap = new Map();
+  for(const e of S.events){
+    const k = Math.floor(e.t/bm)*bm;
+    if(!bmap.has(k)) bmap.set(k,{start:k,pAB:0,pBA:0,bAB:0,bBA:0,in:0,out:0});
+    const r = bmap.get(k); if(e.line==='door') r[e.dir]++; else r[(e.cls==='person'?'p':'b')+e.dir]++;
+  }
+  const bins15 = [...bmap.values()].sort((a,b)=>a.start-b.start);
+  return { sec, from:first, bins15, ped, bike, pedAB:c.person.AB, pedBA:c.person.BA, bikeAB:c.bicycle.AB, bikeBA:c.bicycle.BA,
     pedH:per(ped), bikeH:per(bike), door:S.doorOn || c.in>0, in:c.in, out:c.out, inRate: ped ? +(c.in/ped*100).toFixed(1) : null };
 }
 
@@ -789,7 +821,7 @@ let pending = null, picking = false;
 function openSave(){
   if(S.running) stop();   // 保存する数値を確定させる
   pending = {lat:null, lng:null, acc:null};
-  $('siteName').value = `地点${sites.length+1}`;
+  $('siteName').value = `地点${projSites().length+1}`;
   $('siteMemo').value = '';
   $('siteReset').checked = true;
   setLoc('現在地を取得中…');
@@ -822,8 +854,8 @@ $('btnPick').onclick = () => {
 $('saveForm').addEventListener('submit', e => {
   e.preventDefault();
   if(!pending || pending.lat==null) return;
-  const name = $('siteName').value.trim() || `地点${sites.length+1}`;
-  sites.push({id:Date.now(), name, memo:$('siteMemo').value.trim(), lat:pending.lat, lng:pending.lng, acc:pending.acc,
+  const name = $('siteName').value.trim() || `地点${projSites().length+1}`;
+  sites.push({id:Date.now(), projectId:curProj, name, memo:$('siteMemo').value.trim(), lat:pending.lat, lng:pending.lng, acc:pending.acc,
     savedAt:Date.now(), ...snapshot()});
   saveSites(); pending = null; $('saveModal').hidden = true;
   if($('siteReset').checked){
@@ -886,8 +918,9 @@ function popupHtml(s){
 function drawMarkers(fit){
   if(!map) return;
   layer.clearLayers(); markers.clear();
-  const max = Math.max(1, ...sites.map(s => s.pedH || 0));
-  for(const s of sites){
+  const ps = projSites();
+  const max = Math.max(1, ...ps.map(s => s.pedH || 0));
+  for(const s of ps){
     // 1時間あたりの歩行者数が多いほど大きく・濃く
     const k = (s.pedH || 0) / max;
     const m = L.circleMarker([s.lat, s.lng], {radius: 8 + k*16, color:'#0b6b7a', weight:2, fillColor:'#4fd1e8', fillOpacity:0.35 + k*0.5})
@@ -895,18 +928,20 @@ function drawMarkers(fit){
       .bindTooltip(`${s.name} ${s.pedH==null?'':s.pedH+'人/時'}`, {permanent:true, direction:'top', offset:[0,-6]});
     m.addTo(layer); markers.set(s.id, m);
   }
-  if(fit && sites.length) map.fitBounds(L.latLngBounds(sites.map(s=>[s.lat,s.lng])).pad(0.3), {maxZoom:17});
+  if(fit && ps.length) map.fitBounds(L.latLngBounds(ps.map(s=>[s.lat,s.lng])).pad(0.3), {maxZoom:17});
 }
 const armed = new Map(), unselected = new Set();
 function renderSites(){
-  $('siteCount').textContent = sites.length;
+  renderProjects();
+  const ps = projSites();
+  $('siteCount').textContent = ps.length; $('projLabel').textContent = projName();
   const list = $('siteList');
-  if(!sites.length){ list.innerHTML = '<p class="hint">まだ保存した地点はありません。計測後に「この地点を保存」を押してください。</p>'; drawMarkers(); return; }
-  list.innerHTML = [...sites].reverse().map(s => `
+  if(!ps.length){ list.innerHTML = '<p class="hint">このプロジェクトにはまだ地点がありません。計測後に「この地点を保存」を押してください。</p>'; drawMarkers(true); return; }
+  list.innerHTML = [...ps].reverse().map(s => `
     <div class="site" data-id="${s.id}">
       <div class="nm-wrap"><input type="checkbox" data-act="sel" ${unselected.has(s.id)?'':'checked'} aria-label="エリア画像に含める"><button class="nm" data-act="go">${esc(s.name)}</button></div>
       <div class="meta">${fmtDT(s.from).slice(5)} · ${fmtSec(s.sec)} · 歩行者 ${s.pedH==null?'—':s.pedH+'人/時'} · 自転車 ${s.bikeH==null?'—':s.bikeH+'台/時'}${s.door&&s.inRate!=null?' · 入店率 '+s.inRate+'%':''}</div>
-      <div class="acts"><button data-act="img">画像</button><a class="btnlink" href="${gmapUrl(s)}" target="_blank" rel="noopener">Googleマップ</a><button data-act="rename">名前</button><button class="warn" data-act="del">削除</button></div>
+      <div class="acts"><button data-act="img">画像</button><a class="btnlink" href="${gmapUrl(s)}" target="_blank" rel="noopener">Googleマップ</a><button data-act="rename">名前</button><button data-act="move">移動</button><button class="warn" data-act="del">削除</button></div>
     </div>`).join('');
   drawMarkers();
 }
@@ -920,6 +955,14 @@ $('siteList').addEventListener('click', e => {
   const act = btn.dataset.act;
   if(act==='go'){ initMap(); if(!map) return; map.setView([s.lat, s.lng], 17); markers.get(id)?.openPopup(); $('map').scrollIntoView({behavior:'smooth', block:'center'}); }
   if(act==='img'){ makeImage(s, btn); return; }
+  if(act==='move'){
+    const others = projects.filter(p => p.id!==curProj);
+    if(!others.length){ alert('移動先のプロジェクトがありません。先に「新規」でプロジェクトを作ってください。'); return; }
+    const n = prompt('移動先の番号を入力してください\n' + others.map((p,i)=>`${i+1}. ${p.name}`).join('\n'));
+    const to = others[(+n||0)-1];
+    if(to){ s.projectId = to.id; saveSites(); renderSites(); }
+    return;
+  }
   if(act==='rename'){ const n = prompt('地点名', s.name); if(n && n.trim()){ s.name = n.trim(); saveSites(); renderSites(); } }
   if(act==='del'){
     if(!armed.get(id)){ btn.textContent = 'もう一度で削除'; armed.set(id, setTimeout(()=>{ armed.delete(id); btn.textContent='削除'; }, 3000)); return; }
@@ -931,10 +974,13 @@ $('mapDet').addEventListener('toggle', () => { if($('mapDet').open) initMap(); e
 $('btnSitesCsv').onclick = () => {
   const L2 = ['地点名,メモ,緯度,経度,位置誤差(m),計測開始,計測時間,歩行者,歩行者A→B,歩行者B→A,歩行者/時,自転車,自転車A→B,自転車B→A,自転車/時,入店,退店,入店率(%),保存日時'];
   const q = v => `"${String(v??'').replace(/"/g,'""')}"`;
-  for(const s of sites) L2.push([q(s.name), q(s.memo), s.lat.toFixed(6), s.lng.toFixed(6), s.acc??'', fmtDT(s.from), fmtSec(s.sec),
+  for(const s of projSites()) L2.push([q(s.name), q(s.memo), s.lat.toFixed(6), s.lng.toFixed(6), s.acc??'', fmtDT(s.from), fmtSec(s.sec),
     s.ped, s.pedAB, s.pedBA, s.pedH??'', s.bike, s.bikeAB, s.bikeBA, s.bikeH??'', s.door?s.in:'', s.door?s.out:'', s.door?(s.inRate??''):'', fmtDT(s.savedAt)].join(','));
+  L2.unshift(`プロジェクト,${q(projName())}`, '');
+  L2.push('', '時間帯別（15分）', '地点名,開始,歩行者A→B,歩行者B→A,自転車A→B,自転車B→A,入店,退店');
+  for(const s of projSites()) for(const r of (s.bins15||[])) L2.push([q(s.name), fmtDT(r.start), r.pAB, r.pBA, r.bAB, r.bBA, r.in, r.out].join(','));
   const blob = new Blob(['﻿'+L2.join('\r\n')], {type:'text/csv'}), a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = `通行量_地点一覧_${fmtDT(Date.now()).replace(/[: ]/g,'-')}.csv`;
+  a.href = URL.createObjectURL(blob); a.download = `${safeName(projName())}_${fmtDT(Date.now()).slice(0,10)}.csv`;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
 };
 
@@ -1132,7 +1178,7 @@ async function makeAreaImage(list, btn, noTiles){
     c.fillStyle = '#101214'; c.fillRect(0, MAPH, W, H-MAPH);
     const from = Math.min(...list.map(s=>s.from)), to = Math.max(...list.map(s=>s.savedAt||s.from));
     c.textAlign = 'left'; c.fillStyle = '#eef1f3'; c.font = '700 40px "IBM Plex Sans JP",sans-serif';
-    c.fillText(`エリア通行量調査（${list.length}地点）`, 48, MAPH+64);
+    c.fillText(`${projName()}（${list.length}地点）`, 48, MAPH+64, W-96);
     c.fillStyle = '#9aa3ab'; c.font = '500 26px "IBM Plex Sans JP",sans-serif';
     c.fillText(`${fmtDT(from)} 〜 ${fmtDT(to).slice(fmtDT(from).slice(0,10)===fmtDT(to).slice(0,10) ? 11 : 0)}`, 48, MAPH+104);
     const door = list.some(s=>s.door);
@@ -1165,9 +1211,9 @@ async function makeAreaImage(list, btn, noTiles){
     catch(e){ if(!noTiles){ btn.textContent = old; btn.disabled = false; return makeAreaImage(list, btn, true); } throw e; }
     if(!blob) throw new Error('画像を作れませんでした');
     if(lastImg?.url) URL.revokeObjectURL(lastImg.url);
-    const text = `エリア通行量調査（${list.length}地点）\n` + list.map((s,i) =>
+    const text = `${projName()}（${list.length}地点）\n` + list.map((s,i) =>
       `${i+1}. ${s.name}：歩行者 ${s.pedH ?? '—'}人/時・自転車 ${s.bikeH ?? '—'}台/時${s.door ? `・入店率 ${s.inRate ?? '—'}%` : ''}\n   ${gmapUrl(s)}`).join('\n');
-    lastImg = {blob, url:URL.createObjectURL(blob), fname:`エリア通行量_${fmtDT(from).slice(0,10)}_${list.length}地点.png`, title:'エリア通行量調査', text};
+    lastImg = {blob, url:URL.createObjectURL(blob), fname:`${safeName(projName())}_${list.length}地点.png`, title:projName(), text};
     $('imgPreview').src = lastImg.url;
     $('imgTitle').textContent = `エリア画像（${list.length}地点）`;
     const canFile = !!(navigator.canShare && navigator.canShare({files:[new File([blob], lastImg.fname, {type:'image/png'})]}));
@@ -1179,9 +1225,74 @@ async function makeAreaImage(list, btn, noTiles){
   }finally{ btn.textContent = old; btn.disabled = false; }
 }
 $('btnAreaImg').onclick = () => {
-  const list = sites.filter(s => !unselected.has(s.id));
+  const list = projSites().filter(s => !unselected.has(s.id));
   if(!list.length){ $('btnAreaImg').textContent = '地点にチェックを入れてください'; setTimeout(()=>$('btnAreaImg').textContent='チェックした地点を1枚の画像に', 1800); return; }
   makeAreaImage(list, $('btnAreaImg'));
+};
+
+// ---------- プロジェクトの操作 ----------
+function renderProjects(){
+  $('selProject').innerHTML = projects.map(p => {
+    const n = sites.filter(s=>s.projectId===p.id).length;
+    return `<option value="${p.id}" ${p.id===curProj?'selected':''}>${esc(p.name)}（${n}地点）</option>`;
+  }).join('');
+}
+function switchProject(id){
+  curProj = id; unselected.clear(); saveProjects(); renderSites();
+  if(map) drawMarkers(true);
+}
+$('selProject').onchange = e => switchProject(+e.target.value);
+$('btnProjNew').onclick = () => {
+  const n = prompt('新しいプロジェクト名（例：秋葉原エリア調査 11月）', `プロジェクト${projects.length+1}`);
+  if(!n || !n.trim()) return;
+  const p = {id:Date.now(), name:n.trim(), created:Date.now()};
+  projects.push(p); switchProject(p.id);
+};
+$('btnProjRename').onclick = () => {
+  const p = projects.find(x=>x.id===curProj); if(!p) return;
+  const n = prompt('プロジェクト名', p.name);
+  if(n && n.trim()){ p.name = n.trim(); saveProjects(); renderSites(); }
+};
+let projDelArm = null;
+$('btnProjDel').onclick = () => {
+  const n = projSites().length;
+  if(!projDelArm){
+    $('btnProjDel').textContent = n ? `もう一度で${n}地点ごと削除` : 'もう一度で削除';
+    projDelArm = setTimeout(()=>{ projDelArm=null; $('btnProjDel').textContent='削除'; }, 3000); return;
+  }
+  clearTimeout(projDelArm); projDelArm = null; $('btnProjDel').textContent = '削除';
+  sites = sites.filter(s => s.projectId!==curProj); saveSites();
+  projects = projects.filter(p => p.id!==curProj);
+  if(!projects.length) projects = [{id:Date.now(), name:'プロジェクト1', created:Date.now()}];
+  switchProject(projects[0].id);
+};
+// 書き出し（バックアップ・他の端末への受け渡し）
+$('btnProjExport').onclick = async () => {
+  const p = projects.find(x=>x.id===curProj);
+  const data = JSON.stringify({app:'traffic-counter', version:1, exportedAt:Date.now(), project:{name:p.name, created:p.created}, sites:projSites()});
+  const fname = `${safeName(p.name)}.json`;
+  const file = new File([data], fname, {type:'application/json'});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:p.name}); return; }catch(e){ if(e.name==='AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = fname;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+};
+$('btnProjImport').onclick = () => $('projFile').click();
+$('projFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if(!f) return;
+  try{
+    const d = JSON.parse(await f.text());
+    if(d.app!=='traffic-counter' || !Array.isArray(d.sites)) throw new Error('通行量カウンターで書き出したファイルではありません');
+    let name = d.project?.name || f.name.replace(/\.json$/,'');
+    if(projects.some(p=>p.name===name)) name += '（読込）';
+    const p = {id:Date.now(), name, created:d.project?.created || Date.now()};
+    projects.push(p);
+    d.sites.forEach((s,i) => sites.push({...s, id:Date.now()+i+1, projectId:p.id}));
+    saveSites(); switchProject(p.id);
+    $('mapDet').open = true; initMap();
+    alert(`「${name}」を読み込みました（${d.sites.length}地点）`);
+  }catch(err){ alert('読み込めませんでした：' + (err.message||err)); }
 };
 
 load(); renderDoorUI(); renderCounts(); fitStage(); draw([]);
