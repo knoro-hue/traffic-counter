@@ -156,7 +156,9 @@ button.icon span{display:block;width:18px;height:2px;background:var(--fg);border
 .bar .seg button{min-height:38px;padding:6px 4px;font-size:13px}
 .controls{flex:none;flex-wrap:nowrap}
 .controls .primary{flex:2 1 0;min-height:52px;font-size:17px}
-.controls .save{flex:1 1 0;min-height:52px;border-color:var(--door);color:var(--door);font-weight:700}
+.controls .reset{flex:0 0 auto;min-height:52px;padding:6px 12px;color:var(--danger);font-weight:700}
+.controls .reset.armed{background:var(--danger);border-color:var(--danger);color:#1a0705}
+.controls .save{flex:1 1 0;min-height:52px;white-space:nowrap;padding:6px 8px;border-color:var(--door);color:var(--door);font-weight:700}
 
 /* ===== 別画面 ===== */
 .screen{position:fixed;inset:0;z-index:900;background:var(--bg);display:flex;flex-direction:column;
@@ -252,6 +254,7 @@ label.f select{width:100%}
   <div class="controls">
     <button class="primary" id="btnStart">開始</button>
     <button class="save" id="btnSaveSite">地点を保存</button>
+    <button class="reset" id="btnResetMain">リセット</button>
   </div>
 </div>
 
@@ -1024,14 +1027,22 @@ $('btnCopy').onclick = async () => {
   catch(e){ $('btnCopy').textContent='コピーできませんでした'; }
   setTimeout(()=>$('btnCopy').textContent='CSVをコピー', 1800);
 };
-let resetArm = null;
-$('btnReset').onclick = () => {
-  if(!resetArm){ $('btnReset').textContent='もう一度押すと全件消去'; resetArm = setTimeout(()=>{ resetArm=null; $('btnReset').textContent='リセット'; }, 3000); return; }
-  clearTimeout(resetArm); resetArm=null; $('btnReset').textContent='リセット';
-  S.events = []; S.tracks = []; S.activeMs = 0; S.runStart = S.running ? Date.now() : 0;
-  S.check = {on:false, start:0, end:0, manual:[]};
-  save(); renderCounts();
-};
+// リセットは誤操作を防ぐため2回押しで実行（メイン画面と集計画面の両方から）
+function armReset(btn, label, armedLabel){
+  btn.onclick = () => {
+    if(!btn._arm){
+      btn.textContent = armedLabel; btn.classList.add('armed');
+      btn._arm = setTimeout(()=>{ btn._arm = null; btn.textContent = label; btn.classList.remove('armed'); }, 3000);
+      return;
+    }
+    clearTimeout(btn._arm); btn._arm = null; btn.textContent = label; btn.classList.remove('armed');
+    S.events = []; S.tracks = []; S.lost = []; S.activeMs = 0; S.runStart = S.running ? Date.now() : 0;
+    S.check = {on:false, start:0, end:0, manual:[]};
+    save(); renderCounts(); setStatus(S.running ? '計測中（リセットしました）' : 'リセットしました');
+  };
+}
+armReset($('btnReset'), '計測をリセット', 'もう一度押すと全件消去');
+armReset($('btnResetMain'), 'リセット', 'もう一度');
 
 
 // ---------- 地点の記録とマップ ----------
