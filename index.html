@@ -97,8 +97,10 @@ input[type=file]{display:none}
 .pop td:first-child{padding-left:0;text-align:left;font-family:var(--sans);color:#555}
 .sites{display:flex;flex-direction:column;margin-top:8px}
 .site{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:center}
+.site .nm-wrap{display:flex;align-items:center;gap:8px;min-width:0}
+.site .nm-wrap input{width:20px;height:20px;flex:none;accent-color:var(--ped)}
 .site .nm{font-weight:700;overflow-wrap:anywhere;background:none;border:none;padding:0;min-height:0;text-align:left;color:var(--fg);font-size:14px}
-.site .meta{grid-column:1;font:500 12px var(--mono);color:var(--muted)}
+.site .meta{grid-column:1;padding-left:28px;font:500 12px var(--mono);color:var(--muted)}
 .site .acts{grid-row:1/3;grid-column:2;display:flex;gap:6px}
 .site .acts button,.site .acts .btnlink{padding:6px 10px;min-height:36px;font:500 12px var(--sans);display:inline-flex;align-items:center;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:8px;text-decoration:none}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;z-index:1000;
@@ -255,6 +257,7 @@ input[type=file]{display:none}
     </div>
     <div class="sites" id="siteList"></div>
     <div class="row" style="margin-top:8px">
+      <button class="on" id="btnAreaImg">チェックした地点を1枚の画像に</button>
       <button id="btnSitesCsv">地点一覧をCSV保存</button>
     </div>
   </details>
@@ -894,20 +897,24 @@ function drawMarkers(fit){
   }
   if(fit && sites.length) map.fitBounds(L.latLngBounds(sites.map(s=>[s.lat,s.lng])).pad(0.3), {maxZoom:17});
 }
-const armed = new Map();
+const armed = new Map(), unselected = new Set();
 function renderSites(){
   $('siteCount').textContent = sites.length;
   const list = $('siteList');
   if(!sites.length){ list.innerHTML = '<p class="hint">まだ保存した地点はありません。計測後に「この地点を保存」を押してください。</p>'; drawMarkers(); return; }
   list.innerHTML = [...sites].reverse().map(s => `
     <div class="site" data-id="${s.id}">
-      <button class="nm" data-act="go">${esc(s.name)}</button>
+      <div class="nm-wrap"><input type="checkbox" data-act="sel" ${unselected.has(s.id)?'':'checked'} aria-label="エリア画像に含める"><button class="nm" data-act="go">${esc(s.name)}</button></div>
       <div class="meta">${fmtDT(s.from).slice(5)} · ${fmtSec(s.sec)} · 歩行者 ${s.pedH==null?'—':s.pedH+'人/時'} · 自転車 ${s.bikeH==null?'—':s.bikeH+'台/時'}${s.door&&s.inRate!=null?' · 入店率 '+s.inRate+'%':''}</div>
       <div class="acts"><button data-act="img">画像</button><a class="btnlink" href="${gmapUrl(s)}" target="_blank" rel="noopener">Googleマップ</a><button data-act="rename">名前</button><button class="warn" data-act="del">削除</button></div>
     </div>`).join('');
   drawMarkers();
 }
 $('siteList').addEventListener('click', e => {
+  if(e.target.matches('input[data-act=sel]')){
+    const id = +e.target.closest('.site').dataset.id;
+    e.target.checked ? unselected.delete(id) : unselected.add(id); return;
+  }
   const btn = e.target.closest('button'); if(!btn) return;
   const id = +btn.closest('.site').dataset.id, s = sites.find(x => x.id===id); if(!s) return;
   const act = btn.dataset.act;
@@ -944,7 +951,7 @@ let lastImg = null;
 async function makeImage(s, btn, noTiles){
   const old = btn?.textContent; if(btn){ btn.textContent = '作成中…'; btn.disabled = true; }
   try{
-    const W = 1080, MAPH = 860, H = 1350, Z = 17, SC = 2;   // z17の地図を2倍で描いて文字を読みやすく
+    const W = 1080, MAPH = 860, H = 1350, Z = 16, SC = 2;   // z16の地図を2倍で描く（周辺1km四方ほどが入る）
     const st = STYLES[mapStyle] || STYLES.pale;
     const cv2 = document.createElement('canvas'); cv2.width = W; cv2.height = H;
     const c = cv2.getContext('2d');
@@ -1012,7 +1019,7 @@ async function makeImage(s, btn, noTiles){
     if(!blob) throw new Error('画像を作れませんでした');
     if(lastImg?.url) URL.revokeObjectURL(lastImg.url);
     const fname = `通行量_${s.name.replace(/[\\/:*?"<>|\s]/g,'_')}_${fmtDT(s.from).slice(0,10)}.png`;
-    lastImg = {blob, url:URL.createObjectURL(blob), fname, site:s};
+    lastImg = {blob, url:URL.createObjectURL(blob), fname, title:s.name, text:shareText(s)};
     $('imgPreview').src = lastImg.url;
     $('imgTitle').textContent = s.name;
     const canFile = !!(navigator.canShare && navigator.canShare({files:[new File([blob], fname, {type:'image/png'})]}));
@@ -1036,12 +1043,145 @@ $('btnImgShare').onclick = async () => {
   if(!lastImg) return;
   const file = new File([lastImg.blob], lastImg.fname, {type:'image/png'});
   if(navigator.canShare && navigator.canShare({files:[file]})){
-    try{ await navigator.share({files:[file], title:lastImg.site.name, text:shareText(lastImg.site)}); }
+    try{ await navigator.share({files:[file], title:lastImg.title, text:lastImg.text}); }
     catch(e){ if(e.name!=='AbortError') $('imgNote').textContent = '共有できませんでした。画像を長押しして保存してください。'; }
   }else{
     const a = document.createElement('a'); a.href = lastImg.url; a.download = lastImg.fname;
     document.body.appendChild(a); a.click(); a.remove();
   }
+};
+
+
+// ---------- エリア画像（複数地点を1枚に） ----------
+async function drawTiles(c, st, left, top, Z, SC, W, H, noTiles){
+  if(noTiles) return;
+  const tx0 = Math.floor(left/256), ty0 = Math.floor(top/256), tx1 = Math.floor((left + W/SC)/256), ty1 = Math.floor((top + H/SC)/256);
+  const jobs = [];
+  for(let tx=tx0; tx<=tx1; tx++) for(let ty=ty0; ty<=ty1; ty++){
+    const url = st.url.replace('{z}',Z).replace('{x}',tx).replace('{y}',ty);
+    jobs.push(loadTile(url).then(im => { if(im) c.drawImage(im, (tx*256-left)*SC, (ty*256-top)*SC, 256*SC+0.5, 256*SC+0.5); }));
+  }
+  await Promise.all(jobs);
+}
+async function makeAreaImage(list, btn, noTiles){
+  const old = btn.textContent; btn.textContent = '作成中…'; btn.disabled = true;
+  try{
+    const st = STYLES[mapStyle] || STYLES.pale;
+    const W = 1080, MAPH = 1080, PAD = 240, SC = 1.5;   // PADを大きくして周辺も広めに写す
+    // 全地点が収まる一番細かい縮尺を選ぶ（近すぎる場合は周辺が見える程度に引く）
+    let Z = 16;
+    for(let z=16; z>=8; z--){
+      const xs = list.map(s=>lonToPx(s.lng,z)), ys = list.map(s=>latToPx(s.lat,z));
+      Z = z;
+      if((Math.max(...xs)-Math.min(...xs))*SC <= W-PAD*2 && (Math.max(...ys)-Math.min(...ys))*SC <= MAPH-PAD*2) break;
+    }
+    const xs = list.map(s=>lonToPx(s.lng,Z)), ys = list.map(s=>latToPx(s.lat,Z));
+    const cx = (Math.max(...xs)+Math.min(...xs))/2, cy = (Math.max(...ys)+Math.min(...ys))/2;
+    const left = cx - W/2/SC, top = cy - MAPH/2/SC;
+    const ROW = 66, HEAD = 150, FOOT = 80, H = MAPH + HEAD + ROW*list.length + FOOT;
+    const cv2 = document.createElement('canvas'); cv2.width = W; cv2.height = H;
+    const c = cv2.getContext('2d');
+    try{ await Promise.all(['700 40px "IBM Plex Sans JP"','500 40px "IBM Plex Mono"'].map(f=>document.fonts.load(f))); }catch(e){}
+    c.fillStyle = '#e9ecef'; c.fillRect(0,0,W,MAPH);
+    await drawTiles(c, st, left, top, Z, SC, W, MAPH, noTiles);
+    c.fillStyle = 'rgba(255,255,255,.12)'; c.fillRect(0,0,W,MAPH);   // 地図を少し淡くして数値を目立たせる
+
+    // マーカー：1時間あたりの歩行者が多いほど大きく
+    const max = Math.max(1, ...list.map(s=>s.pedH||0));
+    const pts = list.map((s,i) => ({s, i, x:(lonToPx(s.lng,Z)-left)*SC, y:(latToPx(s.lat,Z)-top)*SC, r: 22 + 26*((s.pedH||0)/max)}));
+    for(const p of pts){
+      c.fillStyle = 'rgba(79,209,232,.35)'; c.beginPath(); c.arc(p.x,p.y,p.r+14,0,Math.PI*2); c.fill();
+    }
+    for(const p of pts){
+      c.fillStyle = '#0b6b7a'; c.beginPath(); c.arc(p.x,p.y,p.r,0,Math.PI*2); c.fill();
+      c.strokeStyle = '#fff'; c.lineWidth = 5; c.stroke();
+      c.fillStyle = '#fff'; c.font = `700 ${Math.round(p.r*0.95)}px "IBM Plex Mono",monospace`; c.textAlign='center'; c.textBaseline='middle';
+      c.fillText(String(p.i+1), p.x, p.y+2);
+    }
+    // ラベル：重ならない位置（右・左・上・下）を探して置く
+    const boxes = pts.map(p => ({x:p.x-p.r-14, y:p.y-p.r-14, w:(p.r+14)*2, h:(p.r+14)*2}));
+    const hit = (a) => a.x<4 || a.y<4 || a.x+a.w>W-4 || a.y+a.h>MAPH-50 || boxes.some(b => a.x<b.x+b.w && b.x<a.x+a.w && a.y<b.y+b.h && b.y<a.y+a.h);
+    for(const p of pts){
+      const l1 = p.s.name, l2 = p.s.pedH==null ? '—' : `${p.s.pedH}人/時`;
+      c.font = '700 30px "IBM Plex Sans JP",sans-serif'; const w1 = Math.min(360, c.measureText(l1).width);
+      c.font = '700 34px "IBM Plex Mono",monospace'; const w2 = c.measureText(l2).width;
+      const w = Math.max(w1,w2) + 28, h = 92, g = p.r + 18;
+      const cands = [[p.x+g, p.y-h/2],[p.x-g-w, p.y-h/2],[p.x-w/2, p.y-g-h],[p.x-w/2, p.y+g]];
+      const pos = cands.map(([x,y])=>({x,y,w,h})).find(b => !hit(b));
+      if(!pos) continue;   // 置けない場合は番号だけ（下の表に載っている）
+      boxes.push(pos);
+      c.fillStyle = 'rgba(16,18,20,.88)'; roundRect(c, pos.x, pos.y, w, h, 14); c.fill();
+      c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+      c.fillStyle = '#eef1f3'; c.font = '700 30px "IBM Plex Sans JP",sans-serif'; c.fillText(l1, pos.x+14, pos.y+38, w-28);
+      c.fillStyle = '#4fd1e8'; c.font = '700 34px "IBM Plex Mono",monospace'; c.fillText(l2, pos.x+14, pos.y+78);
+    }
+    // 縮尺の目安
+    const midLat = list.reduce((t,s)=>t+s.lat,0)/list.length;
+    const mpp = 156543.03392 * Math.cos(midLat*Math.PI/180) / 2**Z / SC;   // 1ピクセルあたりのメートル
+    const nice = [50,100,200,500,1000,2000,5000,10000].find(m => m/mpp >= 120) || 10000;
+    const bl = nice/mpp;
+    c.fillStyle = 'rgba(255,255,255,.85)'; c.fillRect(16, MAPH-56, bl+24, 40);
+    c.fillStyle = '#333'; c.fillRect(28, MAPH-28, bl, 5); c.fillRect(28, MAPH-36, 4, 13); c.fillRect(28+bl-4, MAPH-36, 4, 13);
+    c.font = '500 20px "IBM Plex Sans JP",sans-serif'; c.textAlign='left'; c.fillText(nice>=1000 ? `${nice/1000}km` : `${nice}m`, 36, MAPH-34);
+    // 出典
+    c.font = '500 22px "IBM Plex Sans JP",sans-serif'; c.textAlign = 'right';
+    c.fillStyle = 'rgba(255,255,255,.85)'; const cw = c.measureText(st.credit).width + 20;
+    c.fillRect(W-cw-8, MAPH-40, cw+8, 36); c.fillStyle = '#333'; c.fillText(st.credit, W-18, MAPH-14);
+
+    // 下段：地点一覧の表
+    c.fillStyle = '#101214'; c.fillRect(0, MAPH, W, H-MAPH);
+    const from = Math.min(...list.map(s=>s.from)), to = Math.max(...list.map(s=>s.savedAt||s.from));
+    c.textAlign = 'left'; c.fillStyle = '#eef1f3'; c.font = '700 40px "IBM Plex Sans JP",sans-serif';
+    c.fillText(`エリア通行量調査（${list.length}地点）`, 48, MAPH+64);
+    c.fillStyle = '#9aa3ab'; c.font = '500 26px "IBM Plex Sans JP",sans-serif';
+    c.fillText(`${fmtDT(from)} 〜 ${fmtDT(to).slice(fmtDT(from).slice(0,10)===fmtDT(to).slice(0,10) ? 11 : 0)}`, 48, MAPH+104);
+    const door = list.some(s=>s.door);
+    // [x, 見出し, 揃え, 色]
+    const cols = door
+      ? [[48,'No','left','#4fd1e8'],[110,'地点','left','#eef1f3'],[650,'計測','right','#eef1f3'],[800,'歩行者/時','right','#4fd1e8'],[940,'自転車/時','right','#ffb020'],[1032,'入店率','right','#6fe39a']]
+      : [[48,'No','left','#4fd1e8'],[110,'地点','left','#eef1f3'],[720,'計測','right','#eef1f3'],[880,'歩行者/時','right','#4fd1e8'],[1032,'自転車/時','right','#ffb020']];
+    const nameMax = cols[2][0] - 140 - 110 - 16;
+    const yH = MAPH+HEAD-4;
+    c.font = '500 22px "IBM Plex Sans JP",sans-serif'; c.fillStyle = '#9aa3ab';
+    for(const [x,t,al] of cols){ c.textAlign = al; c.fillText(t, x, yH); }
+    list.forEach((s,i) => {
+      const y = MAPH + HEAD + ROW*i + 46;
+      c.fillStyle = '#2c3137'; c.fillRect(48, y-44, W-96, 1);
+      const vals = [String(i+1), s.name, fmtSec(s.sec), s.pedH==null?'—':String(s.pedH), s.bikeH==null?'—':String(s.bikeH)];
+      if(door) vals.push(s.door && s.inRate!=null ? s.inRate+'%' : '—');
+      vals.forEach((v,k) => {
+        const [x,,al,color] = cols[k];
+        c.textAlign = al; c.fillStyle = color;
+        c.font = k===1 ? '700 30px "IBM Plex Sans JP",sans-serif' : '600 30px "IBM Plex Mono",monospace';
+        if(k===1) c.fillText(v, x, y, nameMax); else c.fillText(v, x, y);
+      });
+    });
+    c.textAlign = 'left'; c.fillStyle = '#5d6670'; c.font = '500 22px "IBM Plex Sans JP",sans-serif';
+    c.fillText('1時間あたり＝計測した秒数から換算　丸の大きさ＝歩行者/時', 48, H-32);
+    c.textAlign = 'right'; c.fillText('通行量カウンター', W-48, H-32);
+
+    let blob;
+    try{ blob = await new Promise(r => cv2.toBlob(r, 'image/png')); }
+    catch(e){ if(!noTiles){ btn.textContent = old; btn.disabled = false; return makeAreaImage(list, btn, true); } throw e; }
+    if(!blob) throw new Error('画像を作れませんでした');
+    if(lastImg?.url) URL.revokeObjectURL(lastImg.url);
+    const text = `エリア通行量調査（${list.length}地点）\n` + list.map((s,i) =>
+      `${i+1}. ${s.name}：歩行者 ${s.pedH ?? '—'}人/時・自転車 ${s.bikeH ?? '—'}台/時${s.door ? `・入店率 ${s.inRate ?? '—'}%` : ''}\n   ${gmapUrl(s)}`).join('\n');
+    lastImg = {blob, url:URL.createObjectURL(blob), fname:`エリア通行量_${fmtDT(from).slice(0,10)}_${list.length}地点.png`, title:'エリア通行量調査', text};
+    $('imgPreview').src = lastImg.url;
+    $('imgTitle').textContent = `エリア画像（${list.length}地点）`;
+    const canFile = !!(navigator.canShare && navigator.canShare({files:[new File([blob], lastImg.fname, {type:'image/png'})]}));
+    $('btnImgShare').textContent = canFile ? '共有（メール等）' : '画像を保存';
+    $('imgNote').textContent = (noTiles ? '地図を画像に含められなかったため、位置は本文のGoogleマップのリンクで伝わります。' : '') + '「共有」からメールやTeamsに添付できます。本文に各地点の数値とGoogleマップのリンクが入ります。';
+    $('imgModal').hidden = false;
+  }catch(e){
+    alert('画像の作成に失敗しました：' + (e.message||e));
+  }finally{ btn.textContent = old; btn.disabled = false; }
+}
+$('btnAreaImg').onclick = () => {
+  const list = sites.filter(s => !unselected.has(s.id));
+  if(!list.length){ $('btnAreaImg').textContent = '地点にチェックを入れてください'; setTimeout(()=>$('btnAreaImg').textContent='チェックした地点を1枚の画像に', 1800); return; }
+  makeAreaImage(list, $('btnAreaImg'));
 };
 
 load(); renderDoorUI(); renderCounts(); fitStage(); draw([]);
