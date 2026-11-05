@@ -133,12 +133,14 @@ html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 header.top{display:flex;align-items:center;gap:10px;flex:none}
 header.top h1{font-size:16px;flex:none}
 header.top .status{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+button.hbtn{min-height:44px;padding:6px 10px;font-size:13px;font-weight:700;flex:none;white-space:nowrap;border-color:var(--ped);color:var(--ped)}
 button.icon{width:44px;height:44px;padding:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;flex:none}
 button.icon span{display:block;width:18px;height:2px;background:var(--fg);border-radius:1px}
-.bk{flex:none;flex-direction:row;align-items:center;flex-wrap:nowrap;padding:6px 8px 6px 12px;gap:8px}
-.bk span{flex:1;min-width:0;font-size:12px}
-.bk button{min-height:36px;padding:6px 10px;font-size:13px}
-.bk .x{background:none;border:none;color:var(--muted);font-size:18px;padding:6px}
+.stagewrap{position:relative}
+.bk{position:absolute;right:8px;bottom:8px;z-index:5;flex-direction:row;align-items:center;gap:0;padding:0;border-radius:999px;background:rgba(16,18,20,.82);border:1px solid rgba(232,240,74,.6);font-size:11px}
+.bk button{min-height:28px;padding:3px 8px 3px 10px;font-size:11px;background:none;border:none;color:var(--accent);display:flex;align-items:center;gap:5px;font-weight:700}
+.bk button i{width:6px;height:6px;border-radius:50%;background:var(--accent);display:block}
+.bk .x{color:var(--muted);font-size:14px;padding:3px 9px 3px 4px;font-weight:400}
 .stagewrap{flex:1 1 auto;min-height:120px}
 .counts{flex:none;gap:6px}
 .tile{padding:6px 10px;gap:0}
@@ -194,15 +196,14 @@ label.f select{width:100%}
   <header class="top">
     <h1>通行量カウンター</h1>
     <div class="status" id="status">モデル未読込</div>
+    <button class="hbtn" id="btnAreaMain">エリア画像</button>
     <button class="icon" id="btnMenu" aria-label="メニュー"><span></span><span></span><span></span></button>
   </header>
 
-  <div class="bk" id="bkBanner" hidden>
-    <span id="bkText"></span>
-    <button id="btnBkNow">バックアップ</button><button class="x" id="btnBkLater" aria-label="閉じる">×</button>
-  </div>
-
   <div class="stagewrap" id="stagewrap">
+    <div class="bk" id="bkBanner" hidden>
+      <button id="btnBkNow"><i></i><span id="bkText">未バックアップ</span></button><button class="x" id="btnBkLater" aria-label="閉じる">×</button>
+    </div>
     <div class="stage" id="stage">
       <video id="video" playsinline muted></video>
       <canvas id="overlay"></canvas>
@@ -1391,6 +1392,46 @@ async function drawTiles(c, st, left, top, Z, SC, W, H, noTiles){
   }
   await Promise.all(jobs);
 }
+
+// 近すぎて重なる丸は、グループの中心のまわりに輪のように並べ直し、本来の位置へ矢印を引く
+function spreadMarkers(pts, W, H){
+  // 1) 重なる地点どうしをグループにまとめる
+  const grp = pts.map((_,i)=>i), find = i => grp[i]===i ? i : (grp[i] = find(grp[i]));
+  for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){
+    const a = pts[i], b = pts[j];
+    if(Math.hypot(a.tx-b.tx, a.ty-b.ty) < a.r + b.r + 24) grp[find(i)] = find(j);
+  }
+  const groups = new Map();
+  pts.forEach((p,i) => { const g = find(i); if(!groups.has(g)) groups.set(g, []); groups.get(g).push(p); });
+  // 2) 2地点以上のグループは輪に並べる
+  for(const g of groups.values()){
+    if(g.length < 2){ g[0].cx = g[0].tx; g[0].cy = g[0].ty; continue; }
+    const cx = g.reduce((t,p)=>t+p.tx,0)/g.length, cy = g.reduce((t,p)=>t+p.ty,0)/g.length;
+    const maxR = Math.max(...g.map(p=>p.r));
+    const R = Math.max(maxR*2 + 70, g.reduce((t,p)=>t + 2*p.r + 40, 0) / (2*Math.PI));
+    // 本来の向きの順番を保つ（同じ場所なら上から時計回り）
+    g.forEach((p,k) => { const dx = p.tx-cx, dy = p.ty-cy; p.ang = Math.hypot(dx,dy) > 2 ? Math.atan2(dy,dx) : -Math.PI/2 + k*1e-3; });
+    g.sort((a,b)=>a.ang-b.ang);
+    const start = g[0].ang;
+    g.forEach((p,k) => { const a = start + k*2*Math.PI/g.length; p.x = cx + R*Math.cos(a); p.y = cy + R*Math.sin(a); p.cx = cx; p.cy = cy; });
+  }
+  // 3) 画面からはみ出さないように収め、グループどうしが重なれば押し広げる
+  for(let it=0; it<200; it++){
+    let moved = false;
+    for(const p of pts){
+      const nx = Math.min(W-p.r-12, Math.max(p.r+12, p.x)), ny = Math.min(H-p.r-60, Math.max(p.r+12, p.y));
+      if(nx!==p.x || ny!==p.y){ p.x = nx; p.y = ny; moved = true; }
+    }
+    for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){
+      const a = pts[i], b = pts[j], need = a.r + b.r + 26;
+      let dx = b.x-a.x, dy = b.y-a.y, d = Math.hypot(dx,dy);
+      if(d >= need) continue;
+      if(d < 0.5){ dx = Math.cos(j*2.4); dy = Math.sin(j*2.4); d = 1; }
+      const push = (need-d)/2; a.x -= dx/d*push; a.y -= dy/d*push; b.x += dx/d*push; b.y += dy/d*push; moved = true;
+    }
+    if(!moved) break;
+  }
+}
 async function makeAreaImage(list, btn, noTiles){
   const old = btn.textContent; btn.textContent = '作成中…'; btn.disabled = true;
   try{
@@ -1416,7 +1457,29 @@ async function makeAreaImage(list, btn, noTiles){
 
     // マーカー：1時間あたりの歩行者が多いほど大きく
     const max = Math.max(1, ...list.map(s=>s.pedH||0));
-    const pts = list.map((s,i) => ({s, i, x:(lonToPx(s.lng,Z)-left)*SC, y:(latToPx(s.lat,Z)-top)*SC, r: 22 + 26*((s.pedH||0)/max)}));
+    const pts = list.map((s,i) => { const x = (lonToPx(s.lng,Z)-left)*SC, y = (latToPx(s.lat,Z)-top)*SC;
+      return {s, i, x, y, tx:x, ty:y, r: 22 + 26*((s.pedH||0)/max)}; });
+    spreadMarkers(pts, W, MAPH);
+    // 本来の位置からずらした丸は、矢印で本来の位置を指す
+    for(const p of pts){
+      const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
+      if(d < 4) continue;
+      const ux = dx/d, uy = dy/d, sx = p.x + ux*(p.r+4), ex = p.tx - ux*9, ey = p.ty - uy*9;
+      c.strokeStyle = 'rgba(16,18,20,.9)'; c.lineWidth = 7; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(sx, p.y + uy*(p.r+4)); c.lineTo(ex, ey); c.stroke();
+      c.strokeStyle = '#ffffff'; c.lineWidth = 3;
+      c.beginPath(); c.moveTo(sx, p.y + uy*(p.r+4)); c.lineTo(ex, ey); c.stroke();
+      // 矢じり（先端が本来の位置）
+      const ah = 22, aw = 12;
+      c.fillStyle = '#101214'; c.beginPath();
+      c.moveTo(p.tx, p.ty); c.lineTo(p.tx - ux*ah - uy*aw, p.ty - uy*ah + ux*aw); c.lineTo(p.tx - ux*ah + uy*aw, p.ty - uy*ah - ux*aw); c.closePath(); c.fill();
+      c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.stroke();
+    }
+    for(const p of pts){   // 本来の位置の小さな点
+      if(Math.hypot(p.tx-p.x, p.ty-p.y) < 4) continue;
+      c.fillStyle = '#101214'; c.beginPath(); c.arc(p.tx, p.ty, 7, 0, Math.PI*2); c.fill();
+      c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.stroke();
+    }
     for(const p of pts){
       c.fillStyle = 'rgba(79,209,232,.35)'; c.beginPath(); c.arc(p.x,p.y,p.r+14,0,Math.PI*2); c.fill();
     }
@@ -1428,13 +1491,24 @@ async function makeAreaImage(list, btn, noTiles){
     }
     // ラベル：重ならない位置（右・左・上・下）を探して置く
     const boxes = pts.map(p => ({x:p.x-p.r-14, y:p.y-p.r-14, w:(p.r+14)*2, h:(p.r+14)*2}));
+    for(const p of pts) if(Math.hypot(p.tx-p.x, p.ty-p.y) >= 4) boxes.push({x:p.tx-16, y:p.ty-16, w:32, h:32});
     const hit = (a) => a.x<4 || a.y<4 || a.x+a.w>W-4 || a.y+a.h>MAPH-50 || boxes.some(b => a.x<b.x+b.w && b.x<a.x+a.w && a.y<b.y+b.h && b.y<a.y+a.h);
     for(const p of pts){
       const l1 = p.s.name, l2 = p.s.pedH==null ? '—' : `${p.s.pedH}人/時`;
       c.font = '700 30px "IBM Plex Sans JP",sans-serif'; const w1 = Math.min(360, c.measureText(l1).width);
       c.font = '700 34px "IBM Plex Mono",monospace'; const w2 = c.measureText(l2).width;
       const w = Math.max(w1,w2) + 28, h = 92, g = p.r + 18;
-      const cands = [[p.x+g, p.y-h/2],[p.x-g-w, p.y-h/2],[p.x-w/2, p.y-g-h],[p.x-w/2, p.y+g]];
+      const cands = [];
+      if(p.cx!==undefined && Math.hypot(p.x-p.cx, p.y-p.cy) > 4){   // 輪に並べた丸は外側にラベルを置く
+        const ux = (p.x-p.cx), uy = (p.y-p.cy), d = Math.hypot(ux,uy);
+        const ox = p.x + ux/d*(g+8), oy = p.y + uy/d*(g+8);
+        cands.push([ux >= 0 ? ox : ox - w, oy - h/2]);
+      }
+      for(const k of [0, 50, 110]){   // 近くに置けなければ少し離して置く
+        const G = g + k;
+        cands.push([p.x+G, p.y-h/2],[p.x-G-w, p.y-h/2],[p.x-w/2, p.y-G-h],[p.x-w/2, p.y+G],
+                   [p.x+G*0.7, p.y-G*0.7-h],[p.x-G*0.7-w, p.y-G*0.7-h],[p.x+G*0.7, p.y+G*0.7],[p.x-G*0.7-w, p.y+G*0.7]);
+      }
       const pos = cands.map(([x,y])=>({x,y,w,h})).find(b => !hit(b));
       if(!pos) continue;   // 置けない場合は番号だけ（下の表に載っている）
       boxes.push(pos);
@@ -1506,11 +1580,17 @@ async function makeAreaImage(list, btn, noTiles){
     alert('画像の作成に失敗しました：' + (e.message||e));
   }finally{ btn.textContent = old; btn.disabled = false; }
 }
-$('btnAreaImg').onclick = () => {
+function areaImageFrom(btn){
   const list = projSites().filter(s => !unselected.has(s.id));
-  if(!list.length){ $('btnAreaImg').textContent = '地点にチェックを入れてください'; setTimeout(()=>$('btnAreaImg').textContent='チェックした地点を1枚の画像に', 1800); return; }
-  makeAreaImage(list, $('btnAreaImg'));
-};
+  if(!list.length){
+    const old = btn.textContent;
+    btn.textContent = projSites().length ? '地点にチェックを' : '地点がありません';
+    setTimeout(()=>btn.textContent = old, 1800); return;
+  }
+  makeAreaImage(list, btn);
+}
+$('btnAreaImg').onclick = () => areaImageFrom($('btnAreaImg'));
+$('btnAreaMain').onclick = () => areaImageFrom($('btnAreaMain'));
 
 // ---------- プロジェクトの操作 ----------
 function renderProjects(){
@@ -1598,9 +1678,8 @@ function renderBackup(){
   if($('bkBanner').hidden === !!changed){ $('bkBanner').hidden = !changed; }
   if(changed){
     const n = bk.at ? sites.filter(s => (s.savedAt||0) > bk.at).length : sites.length;
-    $('bkText').textContent = bk.at
-      ? `前回のバックアップ（${fmtDT(bk.at)}）のあと、${n ? n+'地点が追加・' : ''}変更があります`
-      : `まだバックアップしていません（${sites.length}地点）`;
+    $('bkText').textContent = n ? `未バックアップ ${n}地点` : '未バックアップ';
+    $('btnBkNow').title = bk.at ? `前回のバックアップ：${fmtDT(bk.at)}` : 'まだバックアップしていません';
   }
   $('homeHint').hidden = standalone;
   $('bkLast').textContent = bk.at ? `（前回のバックアップ：${fmtDT(bk.at)}）` : '';
