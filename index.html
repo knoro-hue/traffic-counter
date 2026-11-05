@@ -9,65 +9,84 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
 <style>
-/* Layout: カメラ映像を上に、その下に4つの集計カウンターと操作列。屋外で読みやすい暗色・高コントラスト固定。 */
+/* Layout: カメラ映像を上に、その下に集計カウンター、操作、目視チェック、設定の順。屋外で読みやすい暗色・高コントラスト固定。 */
 :root{
   --bg:#101214; --panel:#1a1d21; --line:#2c3137; --fg:#eef1f3; --muted:#9aa3ab;
-  --ped:#4fd1e8; --bike:#ffb020; --accent:#e8f04a; --danger:#ff6b5e;
+  --ped:#4fd1e8; --bike:#ffb020; --door:#6fe39a; --accent:#e8f04a; --danger:#ff6b5e;
   --sans:"IBM Plex Sans JP",system-ui,-apple-system,"Hiragino Sans",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);-webkit-tap-highlight-color:transparent;
   padding:env(safe-area-inset-top,0) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0) max(12px,env(safe-area-inset-left,0px))}
 .app{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px;padding-block:10px 24px}
 header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
 h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em}
+h2{font-size:13px;margin:0;font-weight:700;color:var(--muted);letter-spacing:.06em}
 .status{font:500 12px var(--mono);color:var(--muted)}
 .status b{color:var(--accent);font-weight:600}
-.stagewrap{background:#000;border-radius:10px;overflow:hidden;display:flex;justify-content:center;align-items:center;min-height:200px;position:relative}
+.stagewrap{background:#000;border-radius:10px;overflow:hidden;display:flex;justify-content:center;align-items:center;min-height:200px}
 .stage{position:relative;width:100%;aspect-ratio:16/9;max-width:100%}
-.stage video{object-fit:fill}
-.hud{position:absolute;left:8px;top:8px;pointer-events:none;font:600 12px var(--mono);color:#fff;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px}
 .stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%}
+.stage video{object-fit:fill}
 .stage canvas{touch-action:none}
-[hidden]{display:none!important}
+.hud{position:absolute;left:8px;top:8px;pointer-events:none;font:600 12px var(--mono);color:#fff;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px}
 .placeholder{pointer-events:none;position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);padding:16px;font-size:14px}
+
 .counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.tile.wide{grid-column:1/-1}
 .tile .k{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 .tile .k i{width:9px;height:9px;border-radius:2px;display:inline-block}
-.ped .k i{background:var(--ped)} .bike .k i{background:var(--bike)}
+.ped .k i{background:var(--ped)} .bike .k i{background:var(--bike)} .door .k i{background:var(--door)}
 .tile .dirs{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
 .tile .dir{display:flex;flex-direction:column}
 .tile .dir span{font-size:11px;color:var(--muted);letter-spacing:.05em}
 .tile .dir strong{font:600 30px/1.1 var(--mono);font-variant-numeric:tabular-nums}
-.ped strong{color:var(--ped)} .bike strong{color:var(--bike)}
+.ped strong{color:var(--ped)} .bike strong{color:var(--bike)} .door strong{color:var(--door)}
+.door .dir.rate strong{color:var(--fg)}
 .tile .sum{font:500 12px var(--mono);color:var(--muted)}
-.controls{display:flex;flex-wrap:wrap;gap:8px}
+.tile .sum b{color:var(--fg);font-weight:600}
+.tile{transition:background .5s}
+.tile.hit{animation:hit .6s ease-out}
+@keyframes hit{from{background:#3a4210}to{background:var(--panel)}}
+
+.rate{display:flex;gap:6px 16px;flex-wrap:wrap;align-items:baseline;font:500 12px var(--mono);color:var(--muted);padding:0 2px}
+.rate b{font:600 15px var(--mono);color:var(--fg)}
+
+.controls,.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 button,select{font:500 14px var(--sans);color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-height:44px}
 button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 button.primary{background:var(--accent);color:#14160a;border-color:var(--accent);font-weight:700;flex:1 1 140px}
 button.primary.stop{background:var(--danger);border-color:var(--danger);color:#1a0705}
 button.warn{color:var(--danger)}
+button.on{border-color:var(--door);color:var(--door)}
 button:disabled{opacity:.45}
-.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 label.f{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);letter-spacing:.04em}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:10px}
+.card-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.tap{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.tap button{min-height:72px;font-size:16px;font-weight:700}
+.tap .p{border-color:var(--ped);color:var(--ped)} .tap .b{border-color:var(--bike);color:var(--bike)}
+.tap button:active{transform:scale(.97)}
+
 details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 summary{cursor:pointer;font-weight:500}
-.tablewrap{overflow-x:auto;margin-top:8px}
+.tablewrap{overflow-x:auto}
+details .tablewrap{margin-top:8px}
 table{border-collapse:collapse;width:100%;font:500 13px var(--mono);font-variant-numeric:tabular-nums}
 th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 th:first-child,td:first-child{text-align:left}
 th{font:500 11px var(--sans);color:var(--muted)}
+td.good{color:var(--door)} td.bad{color:var(--danger)}
 .hint{font-size:12px;color:var(--muted);margin:0}
 .hint em{font-style:normal;color:var(--accent)}
 input[type=file]{display:none}
-.tile{transition:background .5s}
-.tile.hit{animation:hit .6s ease-out}
-@keyframes hit{from{background:#3a4210}to{background:var(--panel)}}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
@@ -82,27 +101,43 @@ input[type=file]{display:none}
       <video id="video" playsinline muted></video>
       <canvas id="overlay"></canvas>
       <div class="hud" id="hud" hidden></div>
-      <div class="placeholder" id="ph">「開始」でカメラを起動します<br>黄色の線の端をドラッグして計測ラインを置いてください</div>
+      <div class="placeholder" id="ph">「開始」でカメラを起動します<br>線の端の丸をドラッグして計測ラインを置いてください</div>
     </div>
   </div>
 
   <div class="counts">
     <div class="tile ped">
-      <div class="k"><i></i>歩行者</div>
+      <div class="k"><i></i>歩行者（通行ライン）</div>
       <div class="dirs">
         <div class="dir"><span>A→B</span><strong id="c-person-AB">0</strong></div>
         <div class="dir"><span>B→A</span><strong id="c-person-BA">0</strong></div>
       </div>
-      <div class="sum">計 <span id="t-person">0</span> 人</div>
+      <div class="sum">計 <b id="t-person">0</b> 人</div>
     </div>
     <div class="tile bike">
-      <div class="k"><i></i>自転車</div>
+      <div class="k"><i></i>自転車（通行ライン）</div>
       <div class="dirs">
         <div class="dir"><span>A→B</span><strong id="c-bicycle-AB">0</strong></div>
         <div class="dir"><span>B→A</span><strong id="c-bicycle-BA">0</strong></div>
       </div>
-      <div class="sum">計 <span id="t-bicycle">0</span> 台</div>
+      <div class="sum">計 <b id="t-bicycle">0</b> 台</div>
     </div>
+    <div class="tile door wide" id="doorTile" hidden>
+      <div class="k"><i></i>入口ライン</div>
+      <div class="dirs">
+        <div class="dir"><span>入店</span><strong id="c-in">0</strong></div>
+        <div class="dir"><span>退店</span><strong id="c-out">0</strong></div>
+        <div class="dir rate"><span>入店率</span><strong id="c-rate">—</strong></div>
+      </div>
+      <div class="sum">入店率 = 入店数 ÷ 店前を通った歩行者数</div>
+    </div>
+  </div>
+
+  <div class="rate" id="rateRow">
+    <span>計測時間 <b id="r-time">0:00</b></span>
+    <span>1時間あたり 歩行者 <b id="r-person">—</b> 人</span>
+    <span>自転車 <b id="r-bicycle">—</b> 台</span>
+    <span id="r-door-wrap" hidden>入店 <b id="r-in">—</b> 人</span>
   </div>
 
   <div class="controls">
@@ -111,53 +146,82 @@ input[type=file]{display:none}
     <input type="file" id="file" accept="video/*">
   </div>
 
-  <div class="row">
-    <label class="f">検出精度
-      <select id="selModel">
-        <option value="lite_mobilenet_v2">標準（速い）</option>
-        <option value="mobilenet_v2">高精度（重い）</option>
-      </select>
-    </label>
-    <label class="f">信頼度しきい値
-      <select id="selConf">
-        <option value="0.35" selected>0.35</option>
-        <option value="0.45">0.45</option>
-        <option value="0.55">0.55</option>
-      </select>
-    </label>
-    <label class="f">集計単位
-      <select id="selBin">
-        <option value="5">5分</option>
-        <option value="15" selected>15分</option>
-        <option value="60">60分</option>
-      </select>
-    </label>
-    <label class="f">遠くの人を無視
-      <select id="selMin">
-        <option value="0">しない</option>
-        <option value="0.1">弱</option>
-        <option value="0.18" selected>中</option>
-        <option value="0.28">強</option>
-      </select>
-    </label>
-    <label class="f">処理速度
-      <select id="selRate">
-        <option value="3">省電力（毎秒3回）</option>
-        <option value="6" selected>標準（毎秒6回）</option>
-        <option value="12">高速（毎秒12回）</option>
-      </select>
-    </label>
-    <label class="f">ライン
-      <select id="selLine">
-        <option value="">（ドラッグで調整）</option>
-        <option value="h">横一直線にリセット</option>
-        <option value="v">縦一直線にリセット</option>
-      </select>
-    </label>
-  </div>
+  <section class="card" id="checkCard">
+    <div class="card-head">
+      <h2>目視チェック</h2>
+      <button id="btnCheck">目視チェック開始</button>
+    </div>
+    <div id="checkBody" hidden>
+      <div class="tap">
+        <button class="p" id="tapPerson">歩行者 +1</button>
+        <button class="b" id="tapBicycle">自転車 +1</button>
+      </div>
+    </div>
+    <div class="tablewrap" id="checkResult" hidden><table id="checkTbl"></table></div>
+    <p class="hint" id="checkHint">通行ラインを通った人を目で数えてボタンを押すと、AIの数と比べて誤差を出します。</p>
+  </section>
+
+  <section class="card">
+    <h2>計測ライン</h2>
+    <div class="row">
+      <label class="f">通行ライン（黄）
+        <select id="selLine">
+          <option value="">ドラッグで調整</option>
+          <option value="h">横一直線にリセット</option>
+          <option value="v">縦一直線にリセット</option>
+        </select>
+      </label>
+      <button id="btnDoor">入口ラインを使う</button>
+      <button id="btnFlip" hidden>外／店内を入れ替え</button>
+    </div>
+    <p class="hint">黄色は店の前を通る人を数える線、緑は入口を出入りする人を数える線です。どちらも<em>引いた線の長さの範囲だけ</em>を数えます。緑の線は「外」側から「店内」側へ入った人を入店とします。</p>
+  </section>
+
+  <details>
+    <summary>検出の設定</summary>
+    <div class="row" style="margin-top:8px">
+      <label class="f">検出精度
+        <select id="selModel">
+          <option value="lite_mobilenet_v2">標準（速い）</option>
+          <option value="mobilenet_v2">高精度（重い）</option>
+        </select>
+      </label>
+      <label class="f">信頼度しきい値
+        <select id="selConf">
+          <option value="0.35" selected>0.35</option>
+          <option value="0.45">0.45</option>
+          <option value="0.55">0.55</option>
+        </select>
+      </label>
+      <label class="f">遠くの人を無視
+        <select id="selMin">
+          <option value="0">しない</option>
+          <option value="0.1">弱</option>
+          <option value="0.18" selected>中</option>
+          <option value="0.28">強</option>
+        </select>
+      </label>
+      <label class="f">処理速度
+        <select id="selRate">
+          <option value="3">省電力（毎秒3回）</option>
+          <option value="6" selected>標準（毎秒6回）</option>
+          <option value="12">高速（毎秒12回）</option>
+        </select>
+      </label>
+    </div>
+  </details>
 
   <details id="det">
     <summary>時間帯別集計</summary>
+    <div class="row" style="margin-top:8px">
+      <label class="f">集計単位
+        <select id="selBin">
+          <option value="5">5分</option>
+          <option value="15" selected>15分</option>
+          <option value="60">60分</option>
+        </select>
+      </label>
+    </div>
     <div class="tablewrap"><table id="tbl"></table></div>
   </details>
 
@@ -167,7 +231,7 @@ input[type=file]{display:none}
     <button class="warn" id="btnReset">リセット</button>
   </div>
 
-  <p class="hint">iPhoneは歩道に対して<em>斜め上から</em>固定すると精度が上がります。自転車に乗っている人は自転車として1回だけ数えます。計測中は画面を消さないでください（自動で消灯を抑止します）。</p>
+  <p class="hint">iPhoneは歩道に対して<em>斜め上から</em>固定すると精度が上がります。自転車に乗っている人は自転車として1回だけ数えます。計測中は画面の自動消灯を抑止します。</p>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
@@ -176,30 +240,77 @@ input[type=file]{display:none}
 (() => {
 const $ = id => document.getElementById(id);
 const video = $('video'), cv = $('overlay'), ctx = cv.getContext('2d'), stage = $('stage');
-const S = { model:null, modelName:null, running:false, stream:null, wake:null, fileUrl:null,
-  line:{a:{x:0.1,y:0.6}, b:{x:0.9,y:0.6}}, tracks:[], nextId:1, events:[], lastT:0, fps:0 };
+const S = {
+  model:null, modelName:null, running:false, stream:null, wake:null, fileUrl:null, timer:null,
+  lines:{ pass:{a:{x:0.5,y:0.95}, b:{x:0.5,y:0.05}}, door:{a:{x:0.8,y:0.75}, b:{x:0.8,y:0.25}} },
+  doorOn:false, doorFlip:false,
+  tracks:[], nextId:1, events:[],
+  activeMs:0, runStart:0,            // 計測した合計時間（1時間あたりの計算に使う）
+  check:{on:false, start:0, end:0, manual:[]},   // 目視チェック
+  lastT:0, fps:0, vw:0, vh:0
+};
+const MAX_MISS_MS = 1500;   // 見失っても1.5秒は同じ人として保持
+const KEEP_SCORE = 0.25;    // 追跡中の人は低い信頼度でも継続（ちらつき防止）
 
 // ---------- 保存 ----------
-const KEY = 'tc-state-v1';
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify({events:S.events, line:S.line, bin:$('selBin').value, conf:$('selConf').value, model:$('selModel').value, min:$('selMin').value, rate:$('selRate').value})); }catch(e){} }
-function load(){ try{ const d = JSON.parse(localStorage.getItem(KEY)||'null'); if(!d) return;
-  S.events = d.events||[]; if(d.line) S.line = d.line;
-  if(d.bin) $('selBin').value = d.bin; if(d.conf) $('selConf').value = d.conf; if(d.model) $('selModel').value = d.model; if(d.min) $('selMin').value = d.min; if(d.rate) $('selRate').value = d.rate; }catch(e){} }
+const KEY = 'tc-state-v2', OLD_KEY = 'tc-state-v1';
+const SETTINGS = ['selModel','selConf','selMin','selRate','selBin'];
+function save(){
+  try{
+    const set = {}; SETTINGS.forEach(k => set[k] = $(k).value);
+    localStorage.setItem(KEY, JSON.stringify({events:S.events, lines:S.lines, doorOn:S.doorOn, doorFlip:S.doorFlip,
+      activeMs:liveMs(), check:S.check, set}));
+  }catch(e){}
+}
+function load(){
+  try{
+    let d = JSON.parse(localStorage.getItem(KEY)||'null');
+    if(!d){ // 旧バージョンの記録を引き継ぐ
+      const o = JSON.parse(localStorage.getItem(OLD_KEY)||'null');
+      if(o) d = {events:(o.events||[]).map(e=>({...e, line:'pass'})), lines:o.line?{pass:o.line}:null,
+        set:{selModel:o.model, selConf:o.conf, selMin:o.min, selRate:o.rate, selBin:o.bin}};
+    }
+    if(!d) return;
+    S.events = d.events || [];
+    if(d.lines?.pass) S.lines.pass = d.lines.pass;
+    if(d.lines?.door) S.lines.door = d.lines.door;
+    S.doorOn = !!d.doorOn; S.doorFlip = !!d.doorFlip;
+    S.activeMs = d.activeMs || 0;
+    if(d.check) S.check = {...S.check, ...d.check, on:false};
+    for(const k of SETTINGS) if(d.set?.[k] && [...$(k).options].some(o=>o.value===d.set[k])) $(k).value = d.set[k];
+  }catch(e){}
+}
+const liveMs = () => S.activeMs + (S.running && S.runStart ? Date.now() - S.runStart : 0);
 
-// ---------- 表示 ----------
-function setStatus(html){ $('status').innerHTML = html; }
+// ---------- 集計 ----------
 function totals(){
-  const c = {person:{AB:0,BA:0}, bicycle:{AB:0,BA:0}};
-  for(const e of S.events) c[e.cls][e.dir]++;
+  const c = {person:{AB:0,BA:0}, bicycle:{AB:0,BA:0}, in:0, out:0};
+  for(const e of S.events){
+    if(e.line==='door') c[e.dir]++;
+    else c[e.cls][e.dir]++;
+  }
   return c;
 }
+const pct = (a,b) => b ? (a/b*100).toFixed(1)+'%' : '—';
 function renderCounts(){
   const c = totals();
   for(const k of ['person','bicycle']){
     $('c-'+k+'-AB').textContent = c[k].AB; $('c-'+k+'-BA').textContent = c[k].BA;
     $('t-'+k).textContent = c[k].AB + c[k].BA;
   }
+  $('c-in').textContent = c.in; $('c-out').textContent = c.out;
+  $('c-rate').textContent = pct(c.in, c.person.AB + c.person.BA);
+  renderRate(c);
+  renderCheck();
   if($('det').open) renderTable();
+}
+function renderRate(c = totals()){
+  const ms = liveMs(), h = ms/3600000, m = Math.floor(ms/60000);
+  $('r-time').textContent = `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`;
+  const per = n => ms < 60000 ? '—' : Math.round(n/h).toLocaleString();
+  $('r-person').textContent = per(c.person.AB + c.person.BA);
+  $('r-bicycle').textContent = per(c.bicycle.AB + c.bicycle.BA);
+  $('r-in').textContent = per(c.in);
 }
 const pad = n => String(n).padStart(2,'0');
 const fmtDT = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -208,24 +319,82 @@ function bins(){
   const m = +$('selBin').value * 60000, map = new Map();
   for(const e of S.events){
     const k = Math.floor(e.t/m)*m;
-    if(!map.has(k)) map.set(k,{pAB:0,pBA:0,bAB:0,bBA:0});
-    const r = map.get(k); r[(e.cls==='person'?'p':'b')+e.dir]++;
+    if(!map.has(k)) map.set(k,{pAB:0,pBA:0,bAB:0,bBA:0,in:0,out:0});
+    const r = map.get(k);
+    if(e.line==='door') r[e.dir]++; else r[(e.cls==='person'?'p':'b')+e.dir]++;
   }
   return [...map.entries()].sort((a,b)=>a[0]-b[0]).map(([k,r])=>({start:k,end:k+m,...r}));
 }
 function renderTable(){
-  const rows = bins();
-  let h = '<tr><th>時間帯</th><th>歩行者A→B</th><th>歩行者B→A</th><th>自転車A→B</th><th>自転車B→A</th><th>合計</th></tr>';
-  if(!rows.length) h += '<tr><td colspan="6" style="text-align:left;color:var(--muted)">まだ記録がありません</td></tr>';
-  for(const r of rows) h += `<tr><td>${fmtHM(r.start)}–${fmtHM(r.end)}</td><td>${r.pAB}</td><td>${r.pBA}</td><td>${r.bAB}</td><td>${r.bBA}</td><td>${r.pAB+r.pBA+r.bAB+r.bBA}</td></tr>`;
+  const rows = bins(), door = S.doorOn || S.events.some(e=>e.line==='door');
+  let h = '<tr><th>時間帯</th><th>歩行者A→B</th><th>歩行者B→A</th><th>自転車A→B</th><th>自転車B→A</th><th>合計</th>'
+    + (door ? '<th>入店</th><th>入店率</th>' : '') + '</tr>';
+  if(!rows.length) h += `<tr><td colspan="${door?8:6}" style="text-align:left;color:var(--muted)">まだ記録がありません</td></tr>`;
+  for(const r of rows) h += `<tr><td>${fmtHM(r.start)}–${fmtHM(r.end)}</td><td>${r.pAB}</td><td>${r.pBA}</td><td>${r.bAB}</td><td>${r.bBA}</td><td>${r.pAB+r.pBA+r.bAB+r.bBA}</td>`
+    + (door ? `<td>${r.in}</td><td>${pct(r.in, r.pAB+r.pBA)}</td>` : '') + '</tr>';
   $('tbl').innerHTML = h;
 }
+
+// ---------- 目視チェック ----------
+function checkStats(){
+  const C = S.check, end = C.on ? Infinity : C.end;
+  const ai = {person:0, bicycle:0}, man = {person:0, bicycle:0};
+  for(const e of S.events) if(e.line!=='door' && e.t>=C.start && e.t<=end) ai[e.cls]++;
+  for(const m of C.manual) man[m.cls]++;
+  return {ai, man};
+}
+function renderCheck(){
+  const C = S.check, has = C.start > 0;
+  $('btnCheck').textContent = C.on ? '目視チェック終了' : (has ? 'もう一度チェック' : '目視チェック開始');
+  $('checkBody').hidden = !C.on;
+  $('checkResult').hidden = !has;
+  $('checkHint').hidden = has;
+  if(!has) return;
+  const {ai, man} = checkStats();
+  let h = '<tr><th></th><th>目視</th><th>AI</th><th>差</th><th>誤差率</th></tr>';
+  for(const [k,lab] of [['person','歩行者'],['bicycle','自転車']]){
+    const diff = ai[k]-man[k], err = man[k] ? Math.abs(diff)/man[k]*100 : null;
+    const cls = err===null ? '' : err<=10 ? 'good' : err>20 ? 'bad' : '';
+    h += `<tr><td>${lab}</td><td>${man[k]}</td><td>${ai[k]}</td><td>${diff>0?'+':''}${diff}</td><td class="${cls}">${err===null?'—':err.toFixed(1)+'%'}</td></tr>`;
+  }
+  const span = ((C.on ? Date.now() : C.end) - C.start)/60000;
+  h += `<tr><td colspan="5" style="text-align:left;color:var(--muted);font-family:var(--sans)">${fmtHM(C.start)}から${Math.max(0,Math.round(span))}分間${C.on?'（計測中）':''}</td></tr>`;
+  $('checkTbl').innerHTML = h;
+}
+$('btnCheck').onclick = () => {
+  const C = S.check;
+  if(C.on){ C.on = false; C.end = Date.now(); }
+  else { S.check = {on:true, start:Date.now(), end:0, manual:[]}; }
+  save(); renderCheck();
+};
+function tap(cls){
+  if(!S.check.on) return;
+  S.check.manual.push({t:Date.now(), cls}); save(); renderCheck();
+  try{ navigator.vibrate?.(15); }catch(e){}
+}
+$('tapPerson').onclick = () => tap('person');
+$('tapBicycle').onclick = () => tap('bicycle');
+
+// ---------- CSV ----------
 function csv(){
-  const lines = ['開始,終了,歩行者A→B,歩行者B→A,自転車A→B,自転車B→A,合計'];
-  for(const r of bins()) lines.push([fmtDT(r.start),fmtDT(r.end),r.pAB,r.pBA,r.bAB,r.bBA,r.pAB+r.pBA+r.bAB+r.bBA].join(','));
-  lines.push('', '時刻,種別,方向');
-  for(const e of S.events){ const d=new Date(e.t); lines.push(`${fmtDT(e.t)}:${pad(d.getSeconds())},${e.cls==='person'?'歩行者':'自転車'},${e.dir==='AB'?'A→B':'B→A'}`); }
-  return '﻿' + lines.join('\r\n');
+  const c = totals(), ms = liveMs(), h = ms/3600000, per = n => ms>=60000 ? Math.round(n/h) : '';
+  const L = [];
+  L.push('集計', '項目,値');
+  L.push(`計測時間（分）,${Math.round(ms/60000)}`);
+  L.push(`歩行者 合計,${c.person.AB+c.person.BA}`, `歩行者 1時間あたり,${per(c.person.AB+c.person.BA)}`);
+  L.push(`自転車 合計,${c.bicycle.AB+c.bicycle.BA}`, `自転車 1時間あたり,${per(c.bicycle.AB+c.bicycle.BA)}`);
+  if(c.in || c.out || S.doorOn) L.push(`入店,${c.in}`, `退店,${c.out}`, `入店率,${pct(c.in, c.person.AB+c.person.BA)}`);
+  if(S.check.start){
+    const {ai, man} = checkStats();
+    L.push('', '目視チェック', '種別,目視,AI,差');
+    L.push(`歩行者,${man.person},${ai.person},${ai.person-man.person}`, `自転車,${man.bicycle},${ai.bicycle},${ai.bicycle-man.bicycle}`);
+  }
+  L.push('', '時間帯別', '開始,終了,歩行者A→B,歩行者B→A,自転車A→B,自転車B→A,合計,入店,退店,入店率');
+  for(const r of bins()) L.push([fmtDT(r.start),fmtDT(r.end),r.pAB,r.pBA,r.bAB,r.bBA,r.pAB+r.pBA+r.bAB+r.bBA,r.in,r.out,pct(r.in,r.pAB+r.pBA)].join(','));
+  L.push('', '記録', '時刻,ライン,種別,方向');
+  const lab = e => e.line==='door' ? (e.dir==='in'?'入店':'退店') : (e.dir==='AB'?'A→B':'B→A');
+  for(const e of S.events){ const d=new Date(e.t); L.push(`${fmtDT(e.t)}:${pad(d.getSeconds())},${e.line==='door'?'入口':'通行'},${e.cls==='person'?'歩行者':'自転車'},${lab(e)}`); }
+  return '﻿' + L.join('\r\n');
 }
 
 // ---------- ステージ・ライン ----------
@@ -240,50 +409,71 @@ function fitStage(){
   cv.width = Math.round(r.width*dpr); cv.height = Math.round(r.height*dpr);
   ctx.setTransform(dpr,0,0,dpr,0,0);
 }
-window.addEventListener('resize', ()=>{ fitStage(); draw([]); });
+window.addEventListener('resize', ()=>{ fitStage(); draw(S.tracks); });
+const activeLines = () => S.doorOn ? ['pass','door'] : ['pass'];
 let drag = null;
 function ptr(e){ const r = cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height, w:r.width, h:r.height}; }
 cv.addEventListener('pointerdown', e => {
-  const p = ptr(e), L = S.line;
-  const d = k => Math.hypot((L[k].x-p.x)*p.w, (L[k].y-p.y)*p.h);
-  const k = d('a') < d('b') ? 'a' : 'b';
-  if(d(k) < 44){ drag = k; cv.setPointerCapture(e.pointerId); }
+  const p = ptr(e); let best = null;
+  for(const L of activeLines()) for(const k of ['a','b']){
+    const q = S.lines[L][k], d = Math.hypot((q.x-p.x)*p.w, (q.y-p.y)*p.h);
+    if(d < 44 && (!best || d < best.d)) best = {L, k, d};
+  }
+  if(best){ drag = best; cv.setPointerCapture(e.pointerId); }
 });
 cv.addEventListener('pointermove', e => { if(!drag) return; const p = ptr(e);
-  S.line[drag] = {x:Math.min(1,Math.max(0,p.x)), y:Math.min(1,Math.max(0,p.y))}; if(!S.running) draw([]); });
+  S.lines[drag.L][drag.k] = {x:Math.min(1,Math.max(0,p.x)), y:Math.min(1,Math.max(0,p.y))}; if(!S.running) draw([]); });
 cv.addEventListener('pointerup', ()=>{ if(drag){ drag=null; save(); } });
 $('selLine').addEventListener('change', e => {
-  if(e.target.value==='h') S.line = {a:{x:0.05,y:0.6}, b:{x:0.95,y:0.6}};
-  if(e.target.value==='v') S.line = {a:{x:0.5,y:0.95}, b:{x:0.5,y:0.05}};  // 左がA・右がB
+  if(e.target.value==='h') S.lines.pass = {a:{x:0.05,y:0.6}, b:{x:0.95,y:0.6}};
+  if(e.target.value==='v') S.lines.pass = {a:{x:0.5,y:0.95}, b:{x:0.5,y:0.05}};  // 左がA・右がB
   e.target.value=''; save(); if(!S.running) draw([]);
 });
+function renderDoorUI(){
+  $('btnDoor').textContent = S.doorOn ? '入口ラインを使わない' : '入口ラインを使う';
+  $('btnDoor').classList.toggle('on', S.doorOn);
+  $('btnFlip').hidden = !S.doorOn;
+  $('doorTile').hidden = !S.doorOn;
+  $('r-door-wrap').hidden = !S.doorOn;
+}
+$('btnDoor').onclick = () => { S.doorOn = !S.doorOn; save(); renderDoorUI(); renderTable(); if(!S.running) draw([]); };
+$('btnFlip').onclick = () => { S.doorFlip = !S.doorFlip; save(); if(!S.running) draw([]); };
+
 // 点Pを線分に投影した位置（0〜1 が線の端から端）
-function along(p){
-  const {a,b} = S.line, dx=b.x-a.x, dy=b.y-a.y, l2=dx*dx+dy*dy||1;
+function along(L, p){
+  const {a,b} = S.lines[L], dx=b.x-a.x, dy=b.y-a.y, l2=dx*dx+dy*dy||1;
   return ((p.x-a.x)*dx + (p.y-a.y)*dy) / l2;
 }
 // 点Pが線のどちら側か（-1 = A側, 1 = B側, 0 = 線の近く）
-function side(p){
-  const {a,b} = S.line, dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
+function side(L, p){
+  const {a,b} = S.lines[L], dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
   const dist = (dx*(p.y-a.y) - dy*(p.x-a.x)) / len;
   return Math.abs(dist) < 0.012 ? 0 : (dist < 0 ? -1 : 1);
 }
+// 入口ラインで「外」にあたる側（-1 か 1）
+const outside = () => S.doorFlip ? 1 : -1;
 
+function drawLine(L, color, labs){
+  const r = cv.getBoundingClientRect(), W=r.width, H=r.height;
+  const {a,b} = S.lines[L], ax=a.x*W, ay=a.y*H, bx=b.x*W, by=b.y*H;
+  ctx.lineWidth = 4; ctx.strokeStyle = color;
+  ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+  for(const [x,y] of [[ax,ay],[bx,by]]){ ctx.beginPath(); ctx.arc(x,y,11,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); }
+  const mx=(ax+bx)/2, my=(ay+by)/2, len=Math.hypot(bx-ax,by-ay)||1, nx=-(by-ay)/len, ny=(bx-ax)/len;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const [lab,s] of labs){
+    const big = lab.length > 1, x=mx+nx*(big?36:28)*s, y=my+ny*(big?36:28)*s;
+    ctx.font = `700 ${big?12:16}px "IBM Plex Sans JP",sans-serif`;
+    const w = Math.max(26, ctx.measureText(lab).width + 12);
+    ctx.fillStyle='rgba(0,0,0,.65)'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x-w/2,y-13,w,26,13) : ctx.rect(x-w/2,y-13,w,26); ctx.fill();
+    ctx.fillStyle=color; ctx.fillText(lab,x,y);
+  }
+}
 function draw(tracks){
   const r = cv.getBoundingClientRect(), W=r.width, H=r.height;
   ctx.clearRect(0,0,W,H);
-  const {a,b} = S.line, ax=a.x*W, ay=a.y*H, bx=b.x*W, by=b.y*H;
-  ctx.lineWidth = 4; ctx.strokeStyle = '#e8f04a'; ctx.setLineDash([]);
-  ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
-  for(const [x,y] of [[ax,ay],[bx,by]]){ ctx.beginPath(); ctx.arc(x,y,11,0,Math.PI*2); ctx.fillStyle='#e8f04a'; ctx.fill(); }
-  // A/B ラベル（線の法線方向）
-  const mx=(ax+bx)/2, my=(ay+by)/2, len=Math.hypot(bx-ax,by-ay)||1, nx=-(by-ay)/len, ny=(bx-ax)/len;
-  ctx.font = '700 16px "IBM Plex Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  for(const [lab,s] of [['A',-1],['B',1]]){
-    const x=mx+nx*28*s, y=my+ny*28*s;
-    ctx.fillStyle='rgba(0,0,0,.6)'; ctx.beginPath(); ctx.arc(x,y,13,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#e8f04a'; ctx.fillText(lab,x,y);
-  }
+  drawLine('pass', '#e8f04a', [['A',-1],['B',1]]);
+  if(S.doorOn) drawLine('door', '#6fe39a', [['外',outside()],['店内',-outside()]]);
   const now = performance.now();
   for(const t of tracks){
     const lost = now - (t.seen||now);
@@ -294,7 +484,8 @@ function draw(tracks){
     ctx.lineWidth=2; ctx.strokeStyle=col; ctx.strokeRect(x*W,y*H,w*W,h*H);
     ctx.fillStyle=col; ctx.beginPath(); ctx.arc(t.cx*W,t.cy*H,4,0,Math.PI*2); ctx.fill();
     ctx.font='600 11px "IBM Plex Mono",monospace'; ctx.textAlign='left'; ctx.textBaseline='bottom';
-    ctx.fillText((t.cls==='person'?'歩':'自')+t.id+(t.side<0?' A側':t.side>0?' B側':''), x*W+2, y*H-2);
+    const s = t.side.pass;
+    ctx.fillText((t.cls==='person'?'歩':'自')+t.id+(s<0?' A側':s>0?' B側':''), x*W+2, y*H-2);
   }
   ctx.globalAlpha = 1;
 }
@@ -305,8 +496,28 @@ function overlapRatio(p, q){ // pの面積に対する重なり
   const inter = Math.max(0,x2-x1)*Math.max(0,y2-y1);
   return inter / (p[2]*p[3] || 1);
 }
-const MAX_MISS_MS = 1500;   // 見失っても1.5秒は同じ人として保持
-const KEEP_SCORE = 0.25;    // 追跡中の人は低い信頼度でも継続（ちらつき防止）
+function record(t, L, dir){
+  S.events.push({t:Date.now(), line:L, cls:t.cls, dir});
+  renderCounts(); flash(L==='door' ? 'door' : t.cls); save();
+}
+function crossCheck(t, pt, prev){
+  for(const L of activeLines()){
+    if(L==='door' && t.cls!=='person') continue;   // 入店は歩行者のみ
+    const s = side(L, pt);
+    if(s===0) continue;
+    if(t.origin[L]===0) t.origin[L] = s;
+    // 最初に見えた側から反対側へ移ったら1回カウント（線の延長上ではなく、引いた線の範囲内だけ）
+    if(t.confirmed && s!==t.origin[L]){
+      const u = along(L, {x:(prev.x+pt.x)/2, y:(prev.y+pt.y)/2});
+      if(u >= -0.02 && u <= 1.02){
+        const dir = L==='door' ? (t.origin[L]===outside() ? 'in' : 'out') : (t.origin[L]<0 ? 'AB' : 'BA');
+        if(!t.counted[L].has(dir)){ t.counted[L].add(dir); record(t, L, dir); }
+      }
+      t.origin[L] = s;   // 戻ってきた場合は逆方向として数えられる
+    }
+    t.side[L] = s;
+  }
+}
 function update(dets){
   const vw = video.videoWidth, vh = video.videoHeight, conf = +$('selConf').value, now = performance.now();
   let det = dets.filter(d => (d.class==='person'||d.class==='bicycle') && d.score>=KEEP_SCORE)
@@ -321,6 +532,8 @@ function update(dets){
     d.cx = d.box[0]+d.box[2]/2;
     d.cy = d.cls==='person' ? d.box[1]+d.box[3]*0.8 : d.box[1]+d.box[3]/2;
   }
+  // 見失ってから時間が経ちすぎた人は先に外す（別人と取り違えないため）
+  S.tracks = S.tracks.filter(t => now - t.seen <= MAX_MISS_MS);
   // 予測位置（速度）を使って近い順にマッチング。見失っている時間が長いほど探索範囲を広げる
   const pairs = [];
   S.tracks.forEach((t,i) => {
@@ -329,7 +542,7 @@ function update(dets){
     det.forEach((d,j) => {
       if(t.cls!==d.cls) return;
       const dist = Math.hypot(px-d.cx, py-d.cy);
-      const gate = Math.max(0.1, Math.max(d.box[2], d.box[3])*0.9) * (1 + dt*1.5);
+      const gate = Math.max(0.1, Math.max(d.box[2], d.box[3])*0.9) * (1 + dt);
       if(dist < gate) pairs.push([dist,i,j]);
     });
   });
@@ -339,38 +552,30 @@ function update(dets){
     if(usedT.has(i)||usedD.has(j)) continue; usedT.add(i); usedD.add(j);
     const t = S.tracks[i], d = det[j], dt = Math.max(0.03, (now - t.seen)/1000);
     t.vx = t.vx*0.6 + ((d.cx - t.cx)/dt)*0.4; t.vy = t.vy*0.6 + ((d.cy - t.cy)/dt)*0.4;
-    t.px = t.cx; t.py = t.cy; t.cx = d.cx; t.cy = d.cy;
+    const prev = {x:t.cx, y:t.cy};
+    t.cx = d.cx; t.cy = d.cy;
     t.box = t.box.map((v,k)=> v*0.5 + d.box[k]*0.5);   // 枠のブレを抑える
     t.seen = now; t.hits++;
     if(!t.confirmed && t.hits>=2 && d.score>=conf) t.confirmed = true;
-    const s = side({x:d.cx, y:d.cy});
-    if(s!==0){
-      if(t.origin===0) t.origin = s;
-      // 最初に見えた側から反対側へ移ったら1回カウント
-      if(t.confirmed && s!==t.origin){
-        const dir = t.origin<0 ? 'AB' : 'BA';
-        // 線の延長上ではなく、引いた線の範囲内でまたいだときだけ数える
-        const u = along({x:(t.px+d.cx)/2, y:(t.py+d.cy)/2});
-        if(u >= -0.02 && u <= 1.02 && !t.counted.has(dir)){ t.counted.add(dir); S.events.push({t:Date.now(), cls:t.cls, dir}); renderCounts(); flash(t.cls); save(); }
-        t.origin = s;   // 戻ってきた場合は逆方向として数えられる
-      }
-      t.side = s;
-    }
+    crossCheck(t, {x:d.cx, y:d.cy}, prev);
   }
   S.tracks = S.tracks.filter(t => now - t.seen <= MAX_MISS_MS);
   det.forEach((d,j)=>{
     if(usedD.has(j) || d.score < conf) return;   // 新しい人は設定した信頼度以上のときだけ追加
-    const s = side({x:d.cx, y:d.cy});
+    const pt = {x:d.cx, y:d.cy}, origin = {}, sd = {};
+    for(const L of ['pass','door']){ origin[L] = side(L, pt); sd[L] = origin[L]; }
     S.tracks.push({id:S.nextId++, cls:d.cls, cx:d.cx, cy:d.cy, vx:0, vy:0, box:d.box, seen:now, hits:1,
-      confirmed:false, origin:s, side:s, counted:new Set()});
+      confirmed:false, origin, side:sd, counted:{pass:new Set(), door:new Set()}});
   });
 }
-function flash(cls){
-  const el = document.querySelector(cls==='person' ? '.tile.ped' : '.tile.bike');
+function flash(kind){
+  const el = document.querySelector({person:'.tile.ped', bicycle:'.tile.bike', door:'.tile.door'}[kind]);
+  if(!el) return;
   el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
 }
 
 // ---------- ループ ----------
+function setStatus(html){ $('status').innerHTML = html; }
 async function loop(){
   if(!S.running) return;
   const t0 = performance.now();
@@ -382,7 +587,7 @@ async function loop(){
       const live = S.tracks.filter(t=>t.confirmed && performance.now()-t.seen < 300);
       $('hud').textContent = `${$('selRate').value}回/秒 · 検出 歩行者${live.filter(t=>t.cls==='person').length} 自転車${live.filter(t=>t.cls==='bicycle').length}`;
       const now = performance.now(); if(S.lastT){ S.fps = S.fps*0.85 + (1000/(now-S.lastT))*0.15; } S.lastT = now;
-      setStatus(`計測中 <b>${S.fps.toFixed(1)}</b> fps · 追跡 ${S.tracks.filter(t=>t.confirmed).length}`);
+      setStatus(`計測中 <b>${S.fps.toFixed(1)}</b> 回/秒`);
     }catch(e){ console.error(e); $('hud').textContent = '検出エラー: '+(e.message||e); }
   }
   if(video.ended){ stop(); setStatus('動画の最後まで計測しました'); return; }
@@ -390,6 +595,8 @@ async function loop(){
   const wait = Math.max(0, 1000/(+$('selRate').value) - (performance.now() - t0));
   S.timer = setTimeout(loop, document.visibilityState==='visible' ? wait : 1000);
 }
+// 計測時間と1時間あたりの表示を30秒ごとに更新
+setInterval(() => { if(S.running){ renderRate(); if(S.check.on) renderCheck(); } }, 30000);
 
 async function ensureModel(){
   const name = $('selModel').value;
@@ -428,24 +635,27 @@ async function startFile(f){
 }
 function begin(){
   $('ph').hidden = true; $('hud').hidden = false; S.vw = 0; fitStage();
-  S.running = true; S.tracks = []; S.lastT = 0;
+  S.running = true; S.runStart = Date.now(); S.tracks = []; S.lastT = 0;
   $('btnStart').textContent = '停止'; $('btnStart').classList.add('stop');
   wakeLock(); loop();
 }
 function stop(){
-  S.running = false; clearTimeout(S.timer);
+  if(S.running && S.runStart){ S.activeMs += Date.now() - S.runStart; }
+  S.running = false; S.runStart = 0; clearTimeout(S.timer);
   if(S.stream){ S.stream.getTracks().forEach(t=>t.stop()); S.stream=null; }
   if(!video.ended) video.pause();
   try{ S.wake?.release(); }catch(e){} S.wake=null;
   $('btnStart').textContent = '開始'; $('btnStart').classList.remove('stop');
-  $('hud').hidden = true; setStatus('停止中'); draw([]);
+  $('hud').hidden = true; setStatus('停止中'); save(); renderRate(); draw([]);
 }
+// アプリを閉じても計測時間がずれないよう、離れるときに保存
+window.addEventListener('pagehide', save);
 
 // ---------- ボタン ----------
 $('btnStart').onclick = () => S.running ? stop() : startCamera();
 $('btnFile').onclick = () => $('file').click();
 $('file').onchange = e => { const f = e.target.files[0]; if(f) startFile(f); e.target.value=''; };
-$('selModel').onchange = save; $('selConf').onchange = save; $('selMin').onchange = save; $('selRate').onchange = save;
+['selModel','selConf','selMin','selRate'].forEach(k => $(k).onchange = save);
 $('selBin').onchange = () => { save(); renderTable(); };
 $('det').addEventListener('toggle', renderTable);
 $('btnCsv').onclick = () => {
@@ -462,10 +672,12 @@ let resetArm = null;
 $('btnReset').onclick = () => {
   if(!resetArm){ $('btnReset').textContent='もう一度押すと全件消去'; resetArm = setTimeout(()=>{ resetArm=null; $('btnReset').textContent='リセット'; }, 3000); return; }
   clearTimeout(resetArm); resetArm=null; $('btnReset').textContent='リセット';
-  S.events = []; S.tracks = []; save(); renderCounts();
+  S.events = []; S.tracks = []; S.activeMs = 0; S.runStart = S.running ? Date.now() : 0;
+  S.check = {on:false, start:0, end:0, manual:[]};
+  save(); renderCounts();
 };
 
-load(); renderCounts(); fitStage(); draw([]);
+load(); renderDoorUI(); renderCounts(); fitStage(); draw([]);
 setStatus(S.events.length ? `前回の記録 ${S.events.length} 件を復元` : '待機中');
 })();
 </script>
