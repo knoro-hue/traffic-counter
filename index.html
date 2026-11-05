@@ -35,7 +35,7 @@ h2{font-size:13px;margin:0;font-weight:700;color:var(--muted);letter-spacing:.06
 .stage video{object-fit:fill}
 .stage canvas{touch-action:none}
 .hud{position:absolute;left:8px;top:8px;pointer-events:none;font:600 12px var(--mono);color:#fff;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px}
-.placeholder{pointer-events:none;position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);padding:16px;font-size:14px}
+.placeholder{pointer-events:none;position:absolute;inset:0;display:grid;place-items:start center;padding-top:20px!important;text-align:center;color:var(--muted);padding:16px;font-size:14px}
 
 .counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -126,107 +126,243 @@ input[type=file]{display:none}
 .seg button{flex:1;border:none;border-radius:0;border-left:1px solid var(--line);background:var(--panel);color:var(--muted);font-weight:700}
 .seg button:first-child{border-left:none}
 .seg button[aria-checked="true"]{background:var(--fg);color:var(--bg)}
+
+/* ===== 1画面レイアウト ===== */
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+.app{height:100%;max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:8px;padding-block:6px 8px}
+header.top{display:flex;align-items:center;gap:10px;flex:none}
+header.top h1{font-size:16px;flex:none}
+header.top .status{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+button.icon{width:44px;height:44px;padding:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;flex:none}
+button.icon span{display:block;width:18px;height:2px;background:var(--fg);border-radius:1px}
+.bk{flex:none;flex-direction:row;align-items:center;flex-wrap:nowrap;padding:6px 8px 6px 12px;gap:8px}
+.bk span{flex:1;min-width:0;font-size:12px}
+.bk button{min-height:36px;padding:6px 10px;font-size:13px}
+.bk .x{background:none;border:none;color:var(--muted);font-size:18px;padding:6px}
+.stagewrap{flex:1 1 auto;min-height:120px}
+.counts{flex:none;gap:6px}
+.tile{padding:6px 10px;gap:0}
+.tile .dirs{gap:12px;flex-wrap:nowrap}
+.tile .dir strong{font-size:24px}
+.tile .dir span{font-size:10px}
+.tile .dir.tot strong{color:var(--fg)}
+.tile .sum{font-size:11px}
+.tile .sum b{font-size:13px}
+.door .dirs{justify-content:space-between}
+.bar{flex:none;display:flex;align-items:center;gap:8px}
+.bar .timer{font:500 12px var(--mono);color:var(--muted);white-space:nowrap}
+.bar .timer b{font:600 15px var(--mono);color:var(--fg)}
+.bar .seg{flex:1 1 auto}
+.bar .seg button{min-height:38px;padding:6px 4px;font-size:13px}
+.controls{flex:none;flex-wrap:nowrap}
+.controls .primary{flex:2 1 0;min-height:52px;font-size:17px}
+.controls .save{flex:1 1 0;min-height:52px;border-color:var(--door);color:var(--door);font-weight:700}
+
+/* ===== 別画面 ===== */
+.screen{position:fixed;inset:0;z-index:900;background:var(--bg);display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top,0px) max(12px,env(safe-area-inset-right,0px)) 0 max(12px,env(safe-area-inset-left,0px));
+  animation:slidein .18s ease-out}
+@keyframes slidein{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.shead{display:flex;align-items:center;justify-content:flex-start;gap:10px;padding-block:8px;border-bottom:1px solid var(--line);flex:none}
+.shead h2{font-size:16px;color:var(--fg);letter-spacing:.02em;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shead .back{min-height:40px;padding:6px 12px}
+.sbody{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:14px;
+  padding-block:12px max(20px,env(safe-area-inset-bottom,0px))}
+.menu{display:flex;flex-direction:column;gap:8px}
+.menu button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:12px 14px;position:relative}
+.menu button b{font-size:15px}
+.menu button span{font-size:12px;color:var(--muted)}
+.menu button::after{content:"›";position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:22px;color:var(--muted)}
+.group{display:flex;flex-direction:column;gap:8px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.group:last-child{border-bottom:none}
+.group h3{margin:0;font-size:14px}
+.muted{color:var(--muted);font-weight:400;font-size:12px;margin-left:8px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.grid2 select{width:100%}
+label.f select{width:100%}
+#map{height:min(48vh,380px);margin-top:0}
+.projname{font-size:15px;color:var(--fg);font-weight:700;letter-spacing:0}
 </style>
 </head>
 <body>
 <div class="app">
-  <header>
+  <header class="top">
     <h1>通行量カウンター</h1>
     <div class="status" id="status">モデル未読込</div>
+    <button class="icon" id="btnMenu" aria-label="メニュー"><span></span><span></span><span></span></button>
   </header>
 
   <div class="bk" id="bkBanner" hidden>
     <span id="bkText"></span>
-    <div class="row"><button class="primary" id="btnBkNow">今すぐバックアップ</button><button id="btnBkLater">あとで</button></div>
+    <button id="btnBkNow">バックアップ</button><button class="x" id="btnBkLater" aria-label="閉じる">×</button>
   </div>
 
-  <div class="stagewrap">
+  <div class="stagewrap" id="stagewrap">
     <div class="stage" id="stage">
       <video id="video" playsinline muted></video>
       <canvas id="overlay"></canvas>
       <div class="hud" id="hud" hidden></div>
-      <div class="placeholder" id="ph">「開始」でカメラを起動します<br>線の端の丸をドラッグして計測ラインを置いてください</div>
+      <div class="placeholder" id="ph">「開始」でカメラを起動します<br>線の端の丸をドラッグして、人がまたぐ位置に置いてください</div>
     </div>
   </div>
 
   <div class="counts">
     <div class="tile ped">
-      <div class="k"><i></i>歩行者（通行ライン）</div>
+      <div class="k"><i></i>歩行者</div>
       <div class="dirs">
         <div class="dir"><span>A→B</span><strong id="c-person-AB">0</strong></div>
         <div class="dir"><span>B→A</span><strong id="c-person-BA">0</strong></div>
+        <div class="dir tot"><span>計</span><strong id="t-person">0</strong></div>
       </div>
-      <div class="sum">計 <b id="t-person">0</b> 人</div>
+      <div class="sum"><b id="r-person">—</b> 人/時</div>
     </div>
     <div class="tile bike">
-      <div class="k"><i></i>自転車（通行ライン）</div>
+      <div class="k"><i></i>自転車</div>
       <div class="dirs">
         <div class="dir"><span>A→B</span><strong id="c-bicycle-AB">0</strong></div>
         <div class="dir"><span>B→A</span><strong id="c-bicycle-BA">0</strong></div>
+        <div class="dir tot"><span>計</span><strong id="t-bicycle">0</strong></div>
       </div>
-      <div class="sum">計 <b id="t-bicycle">0</b> 台</div>
+      <div class="sum"><b id="r-bicycle">—</b> 台/時</div>
     </div>
     <div class="tile door wide" id="doorTile" hidden>
-      <div class="k"><i></i>入口ライン</div>
       <div class="dirs">
         <div class="dir"><span>入店</span><strong id="c-in">0</strong></div>
         <div class="dir"><span>退店</span><strong id="c-out">0</strong></div>
         <div class="dir rate"><span>入店率</span><strong id="c-rate">—</strong></div>
+        <div class="dir"><span>入店/時</span><strong id="r-in">—</strong></div>
       </div>
-      <div class="sum">入店率 = 入店数 ÷ 店前を通った歩行者数</div>
     </div>
   </div>
 
-  <div class="rate" id="rateRow">
-    <span>計測時間 <b id="r-time">0:00:00</b></span>
-    <span>1時間あたり 歩行者 <b id="r-person">—</b> 人</span>
-    <span>自転車 <b id="r-bicycle">—</b> 台</span>
-    <span id="r-door-wrap" hidden>入店 <b id="r-in">—</b> 人</span>
-  </div>
-
-  <div class="controls">
-    <button class="primary" id="btnStart">開始</button>
+  <div class="bar">
+    <span class="timer">計測 <b id="r-time">0:00:00</b></span>
+    <span id="r-door-wrap" hidden></span>
     <div class="seg" id="modeSeg" role="radiogroup" aria-label="計測モード">
       <button data-mode="fine" role="radio">精細</button>
       <button data-mode="normal" role="radio">普通</button>
       <button data-mode="light" role="radio">軽量</button>
     </div>
   </div>
-  <p class="hint" id="modeHint"></p>
 
-  <section class="card">
-    <div class="row">
-      <label class="f" style="flex:1 1 140px">通行ライン（黄）
+  <div class="controls">
+    <button class="primary" id="btnStart">開始</button>
+    <button class="save" id="btnSaveSite">地点を保存</button>
+  </div>
+</div>
+
+<!-- メニュー -->
+<div class="screen" id="scr-menu" hidden>
+  <header class="shead"><button class="back" data-close>閉じる</button><h2>メニュー</h2></header>
+  <div class="sbody">
+    <nav class="menu">
+      <button data-open="line"><b>計測ライン</b><span>線のリセット・入口ライン（入店率）</span></button>
+      <button data-open="map"><b>地点マップ</b><span id="menuMapSub">保存した地点・エリア画像</span></button>
+      <button data-open="project"><b>プロジェクト</b><span id="menuProjSub">切替・新規・バックアップ</span></button>
+      <button data-open="table"><b>時間帯別集計・CSV</b><span>今の計測の内訳と書き出し</span></button>
+      <button data-open="check"><b>目視チェック</b><span>AIの数と目で数えた数を比べる</span></button>
+      <button data-open="settings"><b>詳細設定</b><span id="menuSetSub">モードの中身を個別に変更</span></button>
+    </nav>
+    <p class="hint" id="modeHint"></p>
+    <p class="hint" id="homeHint"><em>ホーム画面に追加して使うのがおすすめです。</em>Safariで開いたままだと、しばらく使わない間にiPhoneがデータを消すことがあります。共有ボタン →「ホーム画面に追加」から追加してください。</p>
+  </div>
+</div>
+
+<div class="screen" id="scr-line" hidden>
+  <header class="shead"><button class="back" data-back>戻る</button><h2>計測ライン</h2></header>
+  <div class="sbody">
+    <div class="group">
+      <label class="f">通行ライン（黄）
         <select id="selLine">
           <option value="">ドラッグで調整</option>
           <option value="v">縦一直線にリセット</option>
           <option value="h">横一直線にリセット</option>
         </select>
       </label>
-      <button id="btnDoor">入口ラインを使う</button>
-      <button id="btnFlip" hidden>外／店内を入れ替え</button>
+      <p class="hint">人が<em>またぐ向き</em>に線を置き、カメラ画面で端の丸をドラッグして歩道の幅に合わせます。左右の点線も判定に使います。</p>
     </div>
-    <p class="hint">人が<em>またぐ向き</em>に線を置き、端の丸をドラッグして歩道の幅に合わせます。緑の入口ラインは「外」から「店内」へ入った人を入店として数えます。</p>
-  </section>
+    <div class="group">
+      <div class="row"><button id="btnDoor">入口ラインを使う</button><button id="btnFlip" hidden>外／店内を入れ替え</button></div>
+      <p class="hint">緑の入口ラインを店の入口に置くと、「外」から「店内」へ入った人を入店として数え、入店率を出します。</p>
+    </div>
+  </div>
+</div>
 
-  <details id="checkDet">
-    <summary>目視チェック（AIの誤差を確かめる）</summary>
-    <section id="checkCard" style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
-      <div class="row"><button id="btnCheck">目視チェック開始</button></div>
-      <div id="checkBody" hidden>
-        <div class="tap">
-          <button class="p" id="tapPerson">歩行者 +1</button>
-          <button class="b" id="tapBicycle">自転車 +1</button>
-        </div>
+<div class="screen" id="scr-map" hidden>
+  <header class="shead"><button class="back" data-back>戻る</button><h2><span id="projLabel"></span>（<span id="siteCount">0</span>地点）</h2></header>
+  <div class="sbody">
+    <div class="mapwrap">
+      <div id="map"></div>
+      <div class="pick-banner" id="pickBanner" hidden>地図をタップして場所を指定</div>
+    </div>
+    <div class="row">
+      <button class="on" id="btnAreaImg">チェックした地点を1枚の画像に</button>
+      <button id="btnSitesCsv">CSV保存</button>
+    </div>
+    <div class="sites" id="siteList"></div>
+  </div>
+</div>
+
+<div class="screen" id="scr-project" hidden>
+  <header class="shead"><button class="back" data-back>戻る</button><h2>プロジェクト</h2></header>
+  <div class="sbody">
+    <div class="group">
+      <label class="f">保存先のプロジェクト
+        <select id="selProject"></select>
+      </label>
+      <div class="row"><button id="btnProjNew">新規</button><button id="btnProjRename">名前変更</button><button class="warn" id="btnProjDel">削除</button></div>
+    </div>
+    <div class="group">
+      <h3>バックアップ<span class="muted" id="bkLast"></span></h3>
+      <div class="row">
+        <button class="on" id="btnBackupAll">全プロジェクトをバックアップ</button>
+        <button id="btnProjExport">このプロジェクトを書き出し</button>
+        <button id="btnProjImport">ファイルを読み込み</button>
+        <input type="file" id="projFile" accept=".json,application/json">
       </div>
-      <div class="tablewrap" id="checkResult" hidden><table id="checkTbl"></table></div>
-      <p class="hint" id="checkHint">通行ラインを通った人を目で数えてボタンを押すと、AIの数と比べて誤差を出します。</p>
-    </section>
-  </details>
+      <p class="hint">共有メニューで「"ファイル"に保存」→ iCloud Drive を選ぶと、機種変更しても残ります。書き出したファイルは別のiPhoneでも読み込めます。</p>
+    </div>
+  </div>
+</div>
 
-  <details>
-    <summary>詳細設定</summary>
-    <div class="row" style="margin-top:8px">
+<div class="screen" id="scr-table" hidden>
+  <header class="shead"><button class="back" data-back>戻る</button><h2>時間帯別集計</h2></header>
+  <div class="sbody">
+    <label class="f">集計単位
+      <select id="selBin">
+        <option value="5">5分</option>
+        <option value="15" selected>15分</option>
+        <option value="60">60分</option>
+      </select>
+    </label>
+    <div class="tablewrap"><table id="tbl"></table></div>
+    <div class="row">
+      <button id="btnCsv">CSV保存</button>
+      <button id="btnCopy">CSVをコピー</button>
+      <button class="warn" id="btnReset">計測をリセット</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="scr-check" hidden>
+  <header class="shead"><button class="back" data-back>戻る</button><h2>目視チェック</h2></header>
+  <div class="sbody" id="checkCard">
+    <div class="row"><button class="on" id="btnCheck">目視チェック開始</button></div>
+    <div id="checkBody" hidden>
+      <div class="tap">
+        <button class="p" id="tapPerson">歩行者 +1</button>
+        <button class="b" id="tapBicycle">自転車 +1</button>
+      </div>
+    </div>
+    <div class="tablewrap" id="checkResult" hidden><table id="checkTbl"></table></div>
+    <p class="hint" id="checkHint">計測中に、通行ラインを通った人を目で数えてボタンを押すと、AIの数と比べて誤差を出します。</p>
+  </div>
+</div>
+
+<div class="screen" id="scr-settings" hidden>
+  <header class="shead"><button class="back" data-back>戻る</button><h2>詳細設定</h2></header>
+  <div class="sbody">
+    <div class="grid2">
       <label class="f">検出精度
         <select id="selModel">
           <option value="lite_mobilenet_v2">標準（速い）</option>
@@ -270,103 +406,41 @@ input[type=file]{display:none}
         </select>
       </label>
     </div>
-    <div class="row" style="margin-top:8px">
-      <button id="btnFile">録画した動画で計測</button>
-      <input type="file" id="file" accept="video/*">
-    </div>
-  </details>
+    <div class="row"><button id="btnFile">録画した動画で計測</button><input type="file" id="file" accept="video/*"></div>
+    <p class="hint">iPhoneは歩道を<em>斜め上から</em>見下ろす位置に固定すると精度が上がります。自転車に乗っている人は自転車として1回だけ数えます。</p>
+  </div>
+</div>
 
-  <section class="card">
-    <div class="card-head">
-      <h2>プロジェクトと地点の記録</h2>
-      <button class="on" id="btnSaveSite">この地点を保存</button>
-    </div>
-    <div class="row">
-      <label class="f" style="flex:1 1 200px">保存先のプロジェクト
-        <select id="selProject"></select>
-      </label>
-      <button id="btnProjNew">新規</button>
-    </div>
-    <details class="sub">
-    <summary>プロジェクトの管理・バックアップ</summary>
-    <div class="row" style="margin-top:8px">
-      <button id="btnProjRename">名前変更</button>
-      <button class="warn" id="btnProjDel">削除</button>
-      <button id="btnProjExport">このプロジェクトを書き出し</button>
-      <button id="btnProjImport">ファイルを読み込み</button>
-      <button id="btnBackupAll">全プロジェクトをバックアップ</button>
-      <input type="file" id="projFile" accept=".json,application/json">
-    </div>
-    </details>
-    <p class="hint">計測結果を現在地（GPS）付きで、選んだプロジェクトに保存します。<span id="bkLast"></span></p>
-    <p class="hint" id="homeHint"><em>ホーム画面に追加して使うのがおすすめです。</em>Safariで開いたままだと、しばらく使わない間にiPhoneがデータを消すことがあります。共有ボタン →「ホーム画面に追加」から追加し、以後はホーム画面のアイコンから開いてください。</p>
-  </section>
-
-  <details id="mapDet">
-    <summary>地点マップ：<span id="projLabel"></span>（<span id="siteCount">0</span>地点）</summary>
-    <div class="mapwrap">
-      <div id="map"></div>
-      <div class="pick-banner" id="pickBanner" hidden>地図をタップして場所を指定</div>
-    </div>
-    <div class="sites" id="siteList"></div>
-    <div class="row" style="margin-top:8px">
-      <button class="on" id="btnAreaImg">チェックした地点を1枚の画像に</button>
-      <button id="btnSitesCsv">プロジェクトをCSV保存</button>
-    </div>
-  </details>
-
-  <div class="modal" id="imgModal" hidden>
-    <div class="sheet imgsheet">
-      <h3 id="imgTitle">共有用の画像</h3>
-      <img id="imgPreview" alt="地点の計測結果の画像">
-      <p class="note" id="imgNote">「共有」からメールやTeamsに添付できます。画像を長押しすると写真に保存できます。</p>
-      <div class="btns">
-        <button type="button" id="btnImgClose">閉じる</button>
-        <button type="button" class="primary" id="btnImgShare">共有（メール等）</button>
-      </div>
+<div class="modal" id="imgModal" hidden>
+  <div class="sheet imgsheet">
+    <h3 id="imgTitle">共有用の画像</h3>
+    <img id="imgPreview" alt="地点の計測結果の画像">
+    <p class="note" id="imgNote">「共有」からメールやTeamsに添付できます。画像を長押しすると写真に保存できます。</p>
+    <div class="btns">
+      <button type="button" id="btnImgClose">閉じる</button>
+      <button type="button" class="primary" id="btnImgShare">共有（メール等）</button>
     </div>
   </div>
+</div>
 
-  <div class="modal" id="saveModal" hidden>
-    <form class="sheet" id="saveForm">
-      <h3>この地点を保存</h3>
-      <label class="f">地点名<input id="siteName" required></label>
-      <label class="f">メモ（任意）<input id="siteMemo" placeholder="例：平日夕方、晴れ"></label>
-      <div class="loc" id="siteLoc">現在地を取得中…</div>
-      <div class="btns">
-        <button type="button" id="btnPick">地図で場所を指定</button>
-      </div>
-      <label class="f" style="flex-direction:row;align-items:center;gap:8px;font-size:13px;color:var(--fg)">
-        <input type="checkbox" id="siteReset" style="width:auto"> 保存後に計測をリセットして次の地点へ
-      </label>
-      <div class="btns">
-        <button type="button" id="btnCancelSite">キャンセル</button>
-        <button type="submit" class="primary" id="btnConfirmSite" disabled>保存</button>
-      </div>
-    </form>
-  </div>
-
-  <details id="det">
-    <summary>時間帯別集計</summary>
-    <div class="row" style="margin-top:8px">
-      <label class="f">集計単位
-        <select id="selBin">
-          <option value="5">5分</option>
-          <option value="15" selected>15分</option>
-          <option value="60">60分</option>
-        </select>
-      </label>
+<div class="modal" id="saveModal" hidden>
+  <form class="sheet" id="saveForm">
+    <h3>この地点を保存</h3>
+    <label class="f">保存先のプロジェクト<span class="projname" id="saveProjName"></span></label>
+    <label class="f">地点名<input id="siteName" required></label>
+    <label class="f">メモ（任意）<input id="siteMemo" placeholder="例：平日夕方、晴れ"></label>
+    <div class="loc" id="siteLoc">現在地を取得中…</div>
+    <div class="btns">
+      <button type="button" id="btnPick">地図で場所を指定</button>
     </div>
-    <div class="tablewrap"><table id="tbl"></table></div>
-  </details>
-
-  <div class="row">
-    <button id="btnCsv">CSV保存</button>
-    <button id="btnCopy">CSVをコピー</button>
-    <button class="warn" id="btnReset">リセット</button>
-  </div>
-
-  <p class="hint">iPhoneは歩道に対して<em>斜め上から</em>固定すると精度が上がります。自転車に乗っている人は自転車として1回だけ数えます。計測中は画面の自動消灯を抑止します。</p>
+    <label class="f" style="flex-direction:row;align-items:center;gap:8px;font-size:13px;color:var(--fg)">
+      <input type="checkbox" id="siteReset" style="width:auto"> 保存後に計測をリセットして次の地点へ
+    </label>
+    <div class="btns">
+      <button type="button" id="btnCancelSite">キャンセル</button>
+      <button type="submit" class="primary" id="btnConfirmSite" disabled>保存</button>
+    </div>
+  </form>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -440,7 +514,7 @@ function renderCounts(){
   $('c-rate').textContent = pct(c.in, c.person.AB + c.person.BA);
   renderRate(c);
   renderCheck();
-  if($('det').open) renderTable();
+  if(!$('scr-table').hidden) renderTable();
 }
 function renderRate(c = totals()){
   const ms = liveMs(), sec = Math.floor(ms/1000);
@@ -540,7 +614,7 @@ function csv(){
 function fitStage(){
   const w = video.videoWidth || 16, h = video.videoHeight || 9;
   if(video.videoWidth){ video.width = w; video.height = h; }
-  const maxW = stage.parentElement.clientWidth, maxH = window.innerHeight*0.56;
+  const wrap = $('stagewrap'), maxW = wrap.clientWidth, maxH = wrap.clientHeight;
   const sc = Math.min(maxW/w, maxH/h);
   stage.style.aspectRatio = 'auto';
   stage.style.width = Math.floor(w*sc)+'px'; stage.style.height = Math.floor(h*sc)+'px';
@@ -859,7 +933,6 @@ $('file').onchange = e => { const f = e.target.files[0]; if(f) startFile(f); e.t
 ['selModel','selConf','selMin','selRate'].forEach(k => $(k).onchange = save);
 ['selMulti','selGap'].forEach(k => $(k).onchange = () => { save(); if(!S.running) draw([]); });
 $('selBin').onchange = () => { save(); renderTable(); };
-$('det').addEventListener('toggle', renderTable);
 $('btnCsv').onclick = () => {
   const blob = new Blob([csv()], {type:'text/csv'}), a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `通行量_${fmtDT(Date.now()).replace(/[: ]/g,'-')}.csv`;
@@ -924,6 +997,7 @@ function openSave(){
   $('siteReset').checked = true;
   setLoc('現在地を取得中…');
   $('btnConfirmSite').disabled = true;
+  $('saveProjName').textContent = projName();
   $('saveModal').hidden = false;
   if(!navigator.geolocation){ setLoc('この端末では位置情報が使えません。「地図で場所を指定」を使ってください', true); return; }
   navigator.geolocation.getCurrentPosition(p => {
@@ -945,8 +1019,7 @@ $('btnCancelSite').onclick = () => { pending = null; $('saveModal').hidden = tru
 $('btnPick').onclick = () => {
   // 地図を開いてタップで場所を指定
   $('saveModal').hidden = true; picking = true;
-  $('mapDet').open = true; initMap(); $('pickBanner').hidden = false;
-  $('mapDet').scrollIntoView({behavior:'smooth', block:'start'});
+  openScreen('map'); $('pickBanner').hidden = false;
   if(map && pending?.lat!=null) map.setView([pending.lat, pending.lng], 17);
 };
 $('saveForm').addEventListener('submit', e => {
@@ -960,8 +1033,8 @@ $('saveForm').addEventListener('submit', e => {
     S.events = []; S.tracks = []; S.activeMs = 0; S.check = {on:false, start:0, end:0, manual:[]};
     save(); renderCounts();
   }
-  renderSites(); $('mapDet').open = true; initMap();
-  const s = sites[sites.length-1]; if(map){ map.setView([s.lat, s.lng], 17); markers.get(s.id)?.openPopup(); }
+  renderSites();
+  const s = sites[sites.length-1]; if(map && !$('scr-map').hidden){ map.setView([s.lat, s.lng], 17); markers.get(s.id)?.openPopup(); }
   $('btnSaveSite').textContent = `「${name}」を保存しました`;
   setTimeout(()=>$('btnSaveSite').textContent='この地点を保存', 2200);
 });
@@ -1051,7 +1124,7 @@ $('siteList').addEventListener('click', e => {
   const btn = e.target.closest('button'); if(!btn) return;
   const id = +btn.closest('.site').dataset.id, s = sites.find(x => x.id===id); if(!s) return;
   const act = btn.dataset.act;
-  if(act==='go'){ initMap(); if(!map) return; map.setView([s.lat, s.lng], 17); markers.get(id)?.openPopup(); $('map').scrollIntoView({behavior:'smooth', block:'center'}); }
+  if(act==='go'){ initMap(); if(!map) return; map.setView([s.lat, s.lng], 17); markers.get(id)?.openPopup(); $('scr-map').querySelector('.sbody').scrollTo({top:0, behavior:'smooth'}); }
   if(act==='img'){ makeImage(s, btn); return; }
   if(act==='move'){
     const others = projects.filter(p => p.id!==curProj);
@@ -1068,7 +1141,6 @@ $('siteList').addEventListener('click', e => {
     sites = sites.filter(x => x.id!==id); saveSites(); renderSites();
   }
 });
-$('mapDet').addEventListener('toggle', () => { if($('mapDet').open) initMap(); else { picking = false; $('pickBanner').hidden = true; } });
 $('btnSitesCsv').onclick = () => {
   const L2 = ['地点名,メモ,緯度,経度,位置誤差(m),計測開始,計測時間,歩行者,歩行者A→B,歩行者B→A,歩行者/時,自転車,自転車A→B,自転車B→A,自転車/時,入店,退店,入店率(%),保存日時'];
   const q = v => `"${String(v??'').replace(/"/g,'""')}"`;
@@ -1396,7 +1468,7 @@ $('projFile').onchange = async e => {
     projects.push(p);
     d.sites.forEach((s,i) => sites.push({...s, id:Date.now()+i+1, projectId:p.id}));
     saveSites(); switchProject(p.id);
-    $('mapDet').open = true; initMap();
+    openScreen('map');
     alert(`「${name}」を読み込みました（${d.sites.length}地点）`);
   }catch(err){ alert('読み込めませんでした：' + (err.message||err)); }
 };
@@ -1411,7 +1483,7 @@ const dataSig = () => sites.length + ':' + sites.reduce((t,s)=>t+s.id%100000+s.n
 function renderBackup(){
   const changed = sites.length && dataSig()!==bk.sig;
   const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
-  $('bkBanner').hidden = !changed;
+  if($('bkBanner').hidden === !!changed){ $('bkBanner').hidden = !changed; }
   if(changed){
     const n = bk.at ? sites.filter(s => (s.savedAt||0) > bk.at).length : sites.length;
     $('bkText').textContent = bk.at
@@ -1441,6 +1513,7 @@ async function backupAll(btn){
 $('btnBackupAll').onclick = () => backupAll();
 $('btnBkNow').onclick = () => backupAll();
 $('btnBkLater').onclick = () => { $('bkBanner').hidden = true; };
+$('bkBanner').hidden = true;
 
 
 // ---------- 計測モード（設定を一括で切り替え） ----------
@@ -1468,6 +1541,31 @@ document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = async () =
   if(S.running && S.modelName !== $('selModel').value){ try{ await ensureModel(); setStatus('モードを切り替えました'); }catch(e){} }
 });
 ['selModel','selRate','selMulti','selGap','selConf'].forEach(k => $(k).addEventListener('change', renderMode));
+
+
+// ---------- 画面の切り替え（メインは1画面、メニューから別画面を開く） ----------
+function openScreen(name){
+  document.querySelectorAll('.screen').forEach(el => el.hidden = el.id !== 'scr-'+name);
+  if(name==='map'){ initMap(); }
+  if(name==='table') renderTable();
+  if(name==='check') renderCheck();
+  if(name==='menu') renderMenu();
+  if(name!=='map'){ picking = false; $('pickBanner').hidden = true; }
+}
+function closeScreens(){ document.querySelectorAll('.screen').forEach(el => el.hidden = true); picking = false; $('pickBanner').hidden = true; }
+function renderMenu(){
+  $('menuMapSub').textContent = `${projName()}・${projSites().length}地点`;
+  $('menuProjSub').textContent = `${projName()}（全${projects.length}件）・バックアップ`;
+  const m = currentMode();
+  $('menuSetSub').textContent = m ? `今のモード：${MODES[m].label}` : '今のモード：カスタム';
+}
+$('btnMenu').onclick = () => openScreen('menu');
+document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openScreen(b.dataset.open));
+document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => openScreen('menu'));
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeScreens);
+// 線を調整しやすいよう、計測ライン画面の変更はすぐカメラ側に反映される（画面を閉じて確認）
+// カメラ枠の大きさが変わったら合わせ直す
+try{ new ResizeObserver(() => { fitStage(); draw(S.running ? S.tracks : []); }).observe($('stagewrap')); }catch(e){}
 
 load(); renderDoorUI(); renderCounts(); fitStage(); draw([]);
 renderMode();
