@@ -77,6 +77,8 @@ label.f{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--mu
 
 details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 summary{cursor:pointer;font-weight:500}
+details.sub{background:none;border:none;padding:0}
+details.sub summary{font-size:13px;color:var(--muted)}
 .tablewrap{overflow-x:auto}
 details .tablewrap{margin-top:8px}
 table{border-collapse:collapse;width:100%;font:500 13px var(--mono);font-variant-numeric:tabular-nums}
@@ -119,6 +121,11 @@ input[type=file]{display:none}
 .site .acts{flex-wrap:wrap}
 .imgsheet img{width:100%;border-radius:8px;border:1px solid var(--line);display:block}
 .imgsheet .note{font-size:12px;color:var(--muted);margin:0}
+
+.seg{display:flex;flex:1 1 200px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{flex:1;border:none;border-radius:0;border-left:1px solid var(--line);background:var(--panel);color:var(--muted);font-weight:700}
+.seg button:first-child{border-left:none}
+.seg button[aria-checked="true"]{background:var(--fg);color:var(--bg)}
 </style>
 </head>
 <body>
@@ -179,28 +186,60 @@ input[type=file]{display:none}
 
   <div class="controls">
     <button class="primary" id="btnStart">開始</button>
-    <button id="btnFile">録画動画で計測</button>
-    <input type="file" id="file" accept="video/*">
+    <div class="seg" id="modeSeg" role="radiogroup" aria-label="計測モード">
+      <button data-mode="fine" role="radio">精細</button>
+      <button data-mode="normal" role="radio">普通</button>
+      <button data-mode="light" role="radio">軽量</button>
+    </div>
   </div>
-
-  <section class="card" id="checkCard">
-    <div class="card-head">
-      <h2>目視チェック</h2>
-      <button id="btnCheck">目視チェック開始</button>
-    </div>
-    <div id="checkBody" hidden>
-      <div class="tap">
-        <button class="p" id="tapPerson">歩行者 +1</button>
-        <button class="b" id="tapBicycle">自転車 +1</button>
-      </div>
-    </div>
-    <div class="tablewrap" id="checkResult" hidden><table id="checkTbl"></table></div>
-    <p class="hint" id="checkHint">通行ラインを通った人を目で数えてボタンを押すと、AIの数と比べて誤差を出します。</p>
-  </section>
+  <p class="hint" id="modeHint"></p>
 
   <section class="card">
-    <h2>計測ライン</h2>
     <div class="row">
+      <label class="f" style="flex:1 1 140px">通行ライン（黄）
+        <select id="selLine">
+          <option value="">ドラッグで調整</option>
+          <option value="v">縦一直線にリセット</option>
+          <option value="h">横一直線にリセット</option>
+        </select>
+      </label>
+      <button id="btnDoor">入口ラインを使う</button>
+      <button id="btnFlip" hidden>外／店内を入れ替え</button>
+    </div>
+    <p class="hint">人が<em>またぐ向き</em>に線を置き、端の丸をドラッグして歩道の幅に合わせます。緑の入口ラインは「外」から「店内」へ入った人を入店として数えます。</p>
+  </section>
+
+  <details id="checkDet">
+    <summary>目視チェック（AIの誤差を確かめる）</summary>
+    <section id="checkCard" style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+      <div class="row"><button id="btnCheck">目視チェック開始</button></div>
+      <div id="checkBody" hidden>
+        <div class="tap">
+          <button class="p" id="tapPerson">歩行者 +1</button>
+          <button class="b" id="tapBicycle">自転車 +1</button>
+        </div>
+      </div>
+      <div class="tablewrap" id="checkResult" hidden><table id="checkTbl"></table></div>
+      <p class="hint" id="checkHint">通行ラインを通った人を目で数えてボタンを押すと、AIの数と比べて誤差を出します。</p>
+    </section>
+  </details>
+
+  <details>
+    <summary>詳細設定</summary>
+    <div class="row" style="margin-top:8px">
+      <label class="f">検出精度
+        <select id="selModel">
+          <option value="lite_mobilenet_v2">標準（速い）</option>
+          <option value="mobilenet_v2">高精度（重い）</option>
+        </select>
+      </label>
+      <label class="f">処理速度
+        <select id="selRate">
+          <option value="3">毎秒3回</option>
+          <option value="6">毎秒6回</option>
+          <option value="12" selected>毎秒12回</option>
+        </select>
+      </label>
       <label class="f">判定ラインの本数
         <select id="selMulti">
           <option value="1">1本</option>
@@ -213,28 +252,6 @@ input[type=file]{display:none}
           <option value="0.08">狭い</option>
           <option value="0.14" selected>標準</option>
           <option value="0.22">広い</option>
-        </select>
-      </label>
-      <label class="f">通行ライン（黄）
-        <select id="selLine">
-          <option value="">ドラッグで調整</option>
-          <option value="h">横一直線にリセット</option>
-          <option value="v">縦一直線にリセット</option>
-        </select>
-      </label>
-      <button id="btnDoor">入口ラインを使う</button>
-      <button id="btnFlip" hidden>外／店内を入れ替え</button>
-    </div>
-    <p class="hint">黄色は店の前を通る人を数える線、緑は入口を出入りする人を数える線です。どちらも<em>引いた線の長さの範囲だけ</em>を数えます。緑の線は「外」側から「店内」側へ入った人を入店とします。</p>
-  </section>
-
-  <details>
-    <summary>検出の設定</summary>
-    <div class="row" style="margin-top:8px">
-      <label class="f">検出精度
-        <select id="selModel">
-          <option value="lite_mobilenet_v2">標準（速い）</option>
-          <option value="mobilenet_v2">高精度（重い）</option>
         </select>
       </label>
       <label class="f">信頼度しきい値
@@ -252,13 +269,10 @@ input[type=file]{display:none}
           <option value="0.28">強</option>
         </select>
       </label>
-      <label class="f">処理速度
-        <select id="selRate">
-          <option value="3">省電力（毎秒3回）</option>
-          <option value="6">標準（毎秒6回）</option>
-          <option value="12" selected>高速（毎秒12回）</option>
-        </select>
-      </label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnFile">録画した動画で計測</button>
+      <input type="file" id="file" accept="video/*">
     </div>
   </details>
 
@@ -272,16 +286,19 @@ input[type=file]{display:none}
         <select id="selProject"></select>
       </label>
       <button id="btnProjNew">新規</button>
+    </div>
+    <details class="sub">
+    <summary>プロジェクトの管理・バックアップ</summary>
+    <div class="row" style="margin-top:8px">
       <button id="btnProjRename">名前変更</button>
       <button class="warn" id="btnProjDel">削除</button>
-    </div>
-    <div class="row">
       <button id="btnProjExport">このプロジェクトを書き出し</button>
       <button id="btnProjImport">ファイルを読み込み</button>
       <button id="btnBackupAll">全プロジェクトをバックアップ</button>
       <input type="file" id="projFile" accept=".json,application/json">
     </div>
-    <p class="hint">計測結果を、現在地（GPS）と地点名を付けて選んだプロジェクトに保存します。マップ・画像・CSVはプロジェクトごとに作られます。データはこのiPhoneの中だけに保存されるので、大事なプロジェクトは「書き出し」でバックアップしてください。書き出したファイルは別のiPhoneでも読み込めます。<br><span id="bkLast"></span></p>
+    </details>
+    <p class="hint">計測結果を現在地（GPS）付きで、選んだプロジェクトに保存します。<span id="bkLast"></span></p>
     <p class="hint" id="homeHint"><em>ホーム画面に追加して使うのがおすすめです。</em>Safariで開いたままだと、しばらく使わない間にiPhoneがデータを消すことがあります。共有ボタン →「ホーム画面に追加」から追加し、以後はホーム画面のアイコンから開いてください。</p>
   </section>
 
@@ -1402,7 +1419,7 @@ function renderBackup(){
       : `まだバックアップしていません（${sites.length}地点）`;
   }
   $('homeHint').hidden = standalone;
-  $('bkLast').textContent = bk.at ? `前回のバックアップ：${fmtDT(bk.at)}` : 'まだバックアップしていません';
+  $('bkLast').textContent = bk.at ? `（前回のバックアップ：${fmtDT(bk.at)}）` : '';
 }
 async function backupAll(btn){
   const data = JSON.stringify({app:'traffic-counter', version:2, type:'all', exportedAt:Date.now(), projects, sites});
@@ -1425,7 +1442,35 @@ $('btnBackupAll').onclick = () => backupAll();
 $('btnBkNow').onclick = () => backupAll();
 $('btnBkLater').onclick = () => { $('bkBanner').hidden = true; };
 
+
+// ---------- 計測モード（設定を一括で切り替え） ----------
+const MODES = {
+  fine:   {label:'精細', hint:'高精度のAIで毎秒12回。人が多い場所向け。電池の減りと発熱が大きくなります。',
+           set:{selModel:'mobilenet_v2', selRate:'12', selMulti:'5', selGap:'0.14', selConf:'0.35'}},
+  normal: {label:'普通', hint:'標準のAIで毎秒12回。たいていの場所はこれで十分です。',
+           set:{selModel:'lite_mobilenet_v2', selRate:'12', selMulti:'5', selGap:'0.14', selConf:'0.35'}},
+  light:  {label:'軽量', hint:'毎秒6回に抑えて長時間の計測向け。人通りが少ない場所に。',
+           set:{selModel:'lite_mobilenet_v2', selRate:'6', selMulti:'5', selGap:'0.14', selConf:'0.35'}},
+};
+function currentMode(){
+  return Object.keys(MODES).find(m => Object.entries(MODES[m].set).every(([k,v]) => $(k).value===v)) || null;
+}
+function renderMode(){
+  const m = currentMode();
+  document.querySelectorAll('#modeSeg button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.mode===m)));
+  $('modeHint').textContent = m ? MODES[m].hint : 'カスタム設定（詳細設定で個別に変更中）。モードを選ぶとまとめて戻ります。';
+}
+document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = async () => {
+  const m = MODES[b.dataset.mode];
+  for(const [k,v] of Object.entries(m.set)) $(k).value = v;
+  save(); renderMode(); if(!S.running) draw([]);
+  // 計測中にAIの種類が変わったら読み込み直す
+  if(S.running && S.modelName !== $('selModel').value){ try{ await ensureModel(); setStatus('モードを切り替えました'); }catch(e){} }
+});
+['selModel','selRate','selMulti','selGap','selConf'].forEach(k => $(k).addEventListener('change', renderMode));
+
 load(); renderDoorUI(); renderCounts(); fitStage(); draw([]);
+renderMode();
 renderSites(); renderBackup();
 setStatus(S.events.length ? `前回の記録 ${S.events.length} 件を復元` : '待機中');
 })();
