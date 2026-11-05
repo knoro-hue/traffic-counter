@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>通行量カウンター</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
 <style>
 /* Layout: カメラ映像を上に、その下に集計カウンター、操作、目視チェック、設定の順。屋外で読みやすい暗色・高コントラスト固定。 */
@@ -87,6 +88,30 @@ td.good{color:var(--door)} td.bad{color:var(--danger)}
 .hint em{font-style:normal;color:var(--accent)}
 input[type=file]{display:none}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* 地点マップ */
+#map{height:min(60vh,420px);border-radius:8px;margin-top:8px;background:#20242a;z-index:0}
+.leaflet-popup-content{font:13px/1.5 var(--sans);margin:10px 12px}
+.leaflet-popup-content b{font-size:14px}
+.pop td{padding:1px 0 1px 10px;border:none;font:500 12px var(--mono);text-align:right}
+.pop td:first-child{padding-left:0;text-align:left;font-family:var(--sans);color:#555}
+.sites{display:flex;flex-direction:column;margin-top:8px}
+.site{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:center}
+.site .nm{font-weight:700;overflow-wrap:anywhere;background:none;border:none;padding:0;min-height:0;text-align:left;color:var(--fg);font-size:14px}
+.site .meta{grid-column:1;font:500 12px var(--mono);color:var(--muted)}
+.site .acts{grid-row:1/3;grid-column:2;display:flex;gap:6px}
+.site .acts button{padding:6px 10px;min-height:36px;font-size:12px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;z-index:1000;
+  padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;width:min(420px,100%);display:flex;flex-direction:column;gap:10px}
+.sheet h3{margin:0;font-size:16px}
+.sheet input,.sheet textarea{font:16px var(--sans);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%}
+.sheet .loc{font:500 12px var(--mono);color:var(--muted)}
+.sheet .loc.err{color:var(--danger)}
+.sheet .btns{display:flex;gap:8px;flex-wrap:wrap}
+.sheet .btns button{flex:1 1 120px}
+.pick-banner{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:500;background:var(--accent);color:#14160a;font-weight:700;font-size:13px;padding:6px 12px;border-radius:999px;pointer-events:none;white-space:nowrap}
+.mapwrap{position:relative}
 </style>
 </head>
 <body>
@@ -211,6 +236,45 @@ input[type=file]{display:none}
     </div>
   </details>
 
+  <section class="card">
+    <div class="card-head">
+      <h2>地点の記録</h2>
+      <button class="on" id="btnSaveSite">この地点を保存</button>
+    </div>
+    <p class="hint">今の計測結果を、現在地（GPS）と地点名を付けて保存します。保存した地点は下のマップで見られます。保存先はこのiPhoneの中だけです。</p>
+  </section>
+
+  <details id="mapDet">
+    <summary>地点マップ（<span id="siteCount">0</span>地点）</summary>
+    <div class="mapwrap">
+      <div id="map"></div>
+      <div class="pick-banner" id="pickBanner" hidden>地図をタップして場所を指定</div>
+    </div>
+    <div class="sites" id="siteList"></div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnSitesCsv">地点一覧をCSV保存</button>
+    </div>
+  </details>
+
+  <div class="modal" id="saveModal" hidden>
+    <form class="sheet" id="saveForm">
+      <h3>この地点を保存</h3>
+      <label class="f">地点名<input id="siteName" required></label>
+      <label class="f">メモ（任意）<input id="siteMemo" placeholder="例：平日夕方、晴れ"></label>
+      <div class="loc" id="siteLoc">現在地を取得中…</div>
+      <div class="btns">
+        <button type="button" id="btnPick">地図で場所を指定</button>
+      </div>
+      <label class="f" style="flex-direction:row;align-items:center;gap:8px;font-size:13px;color:var(--fg)">
+        <input type="checkbox" id="siteReset" style="width:auto"> 保存後に計測をリセットして次の地点へ
+      </label>
+      <div class="btns">
+        <button type="button" id="btnCancelSite">キャンセル</button>
+        <button type="submit" class="primary" id="btnConfirmSite" disabled>保存</button>
+      </div>
+    </form>
+  </div>
+
   <details id="det">
     <summary>時間帯別集計</summary>
     <div class="row" style="margin-top:8px">
@@ -234,6 +298,7 @@ input[type=file]{display:none}
   <p class="hint">iPhoneは歩道に対して<em>斜め上から</em>固定すると精度が上がります。自転車に乗っている人は自転車として1回だけ数えます。計測中は画面の自動消灯を抑止します。</p>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
 <script>
@@ -685,7 +750,158 @@ $('btnReset').onclick = () => {
   save(); renderCounts();
 };
 
+
+// ---------- 地点の記録とマップ ----------
+const SITES_KEY = 'tc-sites-v1';
+let sites = [];
+try{ sites = JSON.parse(localStorage.getItem(SITES_KEY)||'[]'); }catch(e){ sites = []; }
+const saveSites = () => { try{ localStorage.setItem(SITES_KEY, JSON.stringify(sites)); }catch(e){} };
+const esc = t => String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtSec = sec => `${Math.floor(sec/3600)}:${pad(Math.floor(sec/60)%60)}:${pad(sec%60)}`;
+
+function snapshot(){
+  const c = totals(), sec = Math.floor(liveMs()/1000), per = n => sec>=1 ? +(n*3600/sec).toFixed(1) : null;
+  const ped = c.person.AB + c.person.BA, bike = c.bicycle.AB + c.bicycle.BA;
+  const first = S.events.length ? S.events[0].t : Date.now();
+  return { sec, from:first, ped, bike, pedAB:c.person.AB, pedBA:c.person.BA, bikeAB:c.bicycle.AB, bikeBA:c.bicycle.BA,
+    pedH:per(ped), bikeH:per(bike), door:S.doorOn || c.in>0, in:c.in, out:c.out, inRate: ped ? +(c.in/ped*100).toFixed(1) : null };
+}
+
+let pending = null, picking = false;
+function openSave(){
+  if(S.running) stop();   // 保存する数値を確定させる
+  pending = {lat:null, lng:null, acc:null};
+  $('siteName').value = `地点${sites.length+1}`;
+  $('siteMemo').value = '';
+  $('siteReset').checked = true;
+  setLoc('現在地を取得中…');
+  $('btnConfirmSite').disabled = true;
+  $('saveModal').hidden = false;
+  if(!navigator.geolocation){ setLoc('この端末では位置情報が使えません。「地図で場所を指定」を使ってください', true); return; }
+  navigator.geolocation.getCurrentPosition(p => {
+    if(!pending) return;
+    pending.lat = p.coords.latitude; pending.lng = p.coords.longitude; pending.acc = Math.round(p.coords.accuracy);
+    setLoc(`現在地 ${pending.lat.toFixed(5)}, ${pending.lng.toFixed(5)}（誤差 約${pending.acc}m）`);
+    $('btnConfirmSite').disabled = false;
+  }, e => {
+    setLoc(e.code===1 ? '位置情報が許可されていません（設定 › Safari › 位置情報）。「地図で場所を指定」も使えます'
+                      : '現在地を取得できませんでした。「地図で場所を指定」を使ってください', true);
+  }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
+}
+function setLoc(t, err){ $('siteLoc').textContent = t; $('siteLoc').classList.toggle('err', !!err); }
+$('btnSaveSite').onclick = () => {
+  if(!S.events.length && liveMs() < 1000){ $('btnSaveSite').textContent = '先に計測してください'; setTimeout(()=>$('btnSaveSite').textContent='この地点を保存', 1800); return; }
+  openSave();
+};
+$('btnCancelSite').onclick = () => { pending = null; $('saveModal').hidden = true; };
+$('btnPick').onclick = () => {
+  // 地図を開いてタップで場所を指定
+  $('saveModal').hidden = true; picking = true;
+  $('mapDet').open = true; initMap(); $('pickBanner').hidden = false;
+  $('mapDet').scrollIntoView({behavior:'smooth', block:'start'});
+  if(map && pending?.lat!=null) map.setView([pending.lat, pending.lng], 17);
+};
+$('saveForm').addEventListener('submit', e => {
+  e.preventDefault();
+  if(!pending || pending.lat==null) return;
+  const name = $('siteName').value.trim() || `地点${sites.length+1}`;
+  sites.push({id:Date.now(), name, memo:$('siteMemo').value.trim(), lat:pending.lat, lng:pending.lng, acc:pending.acc,
+    savedAt:Date.now(), ...snapshot()});
+  saveSites(); pending = null; $('saveModal').hidden = true;
+  if($('siteReset').checked){
+    S.events = []; S.tracks = []; S.activeMs = 0; S.check = {on:false, start:0, end:0, manual:[]};
+    save(); renderCounts();
+  }
+  renderSites(); $('mapDet').open = true; initMap();
+  const s = sites[sites.length-1]; if(map){ map.setView([s.lat, s.lng], 17); markers.get(s.id)?.openPopup(); }
+  $('btnSaveSite').textContent = `「${name}」を保存しました`;
+  setTimeout(()=>$('btnSaveSite').textContent='この地点を保存', 2200);
+});
+
+let map = null, layer = null; const markers = new Map();
+function initMap(){
+  if(!map){
+    if(!window.L){ $('map').textContent = '地図を読み込めませんでした（通信環境を確認してください）'; return; }
+    map = L.map('map', {zoomControl:true, attributionControl:true}).setView([35.698, 139.771], 14);
+    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+      maxZoom:18, attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>'
+    }).addTo(map);
+    layer = L.layerGroup().addTo(map);
+    map.on('click', e => {
+      if(!picking || !pending) return;
+      picking = false; $('pickBanner').hidden = true;
+      pending.lat = e.latlng.lat; pending.lng = e.latlng.lng; pending.acc = null;
+      setLoc(`地図で指定 ${pending.lat.toFixed(5)}, ${pending.lng.toFixed(5)}`);
+      $('btnConfirmSite').disabled = false; $('saveModal').hidden = false;
+    });
+    drawMarkers(true);
+  }
+  setTimeout(() => map.invalidateSize(), 50);
+}
+function popupHtml(s){
+  const row = (k,v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  return `<b>${esc(s.name)}</b><br><span style="color:#555">${fmtDT(s.from)} から ${fmtSec(s.sec)}</span>`
+    + (s.memo ? `<br>${esc(s.memo)}` : '')
+    + `<table class="pop">`
+    + row('歩行者', `${s.ped}人（A→B ${s.pedAB} / B→A ${s.pedBA}）`)
+    + row('　1時間あたり', s.pedH==null ? '—' : `${s.pedH}人`)
+    + row('自転車', `${s.bike}台（A→B ${s.bikeAB} / B→A ${s.bikeBA}）`)
+    + row('　1時間あたり', s.bikeH==null ? '—' : `${s.bikeH}台`)
+    + (s.door ? row('入店', `${s.in}人`) + row('入店率', s.inRate==null ? '—' : `${s.inRate}%`) : '')
+    + `</table>`;
+}
+function drawMarkers(fit){
+  if(!map) return;
+  layer.clearLayers(); markers.clear();
+  const max = Math.max(1, ...sites.map(s => s.pedH || 0));
+  for(const s of sites){
+    // 1時間あたりの歩行者数が多いほど大きく・濃く
+    const k = (s.pedH || 0) / max;
+    const m = L.circleMarker([s.lat, s.lng], {radius: 8 + k*16, color:'#0b6b7a', weight:2, fillColor:'#4fd1e8', fillOpacity:0.35 + k*0.5})
+      .bindPopup(popupHtml(s))
+      .bindTooltip(`${s.name} ${s.pedH==null?'':s.pedH+'人/時'}`, {permanent:true, direction:'top', offset:[0,-6]});
+    m.addTo(layer); markers.set(s.id, m);
+  }
+  if(fit && sites.length) map.fitBounds(L.latLngBounds(sites.map(s=>[s.lat,s.lng])).pad(0.3), {maxZoom:17});
+}
+const armed = new Map();
+function renderSites(){
+  $('siteCount').textContent = sites.length;
+  const list = $('siteList');
+  if(!sites.length){ list.innerHTML = '<p class="hint">まだ保存した地点はありません。計測後に「この地点を保存」を押してください。</p>'; drawMarkers(); return; }
+  list.innerHTML = [...sites].reverse().map(s => `
+    <div class="site" data-id="${s.id}">
+      <button class="nm" data-act="go">${esc(s.name)}</button>
+      <div class="meta">${fmtDT(s.from).slice(5)} · ${fmtSec(s.sec)} · 歩行者 ${s.pedH==null?'—':s.pedH+'人/時'} · 自転車 ${s.bikeH==null?'—':s.bikeH+'台/時'}${s.door&&s.inRate!=null?' · 入店率 '+s.inRate+'%':''}</div>
+      <div class="acts"><button data-act="rename">名前</button><button class="warn" data-act="del">削除</button></div>
+    </div>`).join('');
+  drawMarkers();
+}
+$('siteList').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if(!btn) return;
+  const id = +btn.closest('.site').dataset.id, s = sites.find(x => x.id===id); if(!s) return;
+  const act = btn.dataset.act;
+  if(act==='go'){ initMap(); if(!map) return; map.setView([s.lat, s.lng], 17); markers.get(id)?.openPopup(); $('map').scrollIntoView({behavior:'smooth', block:'center'}); }
+  if(act==='rename'){ const n = prompt('地点名', s.name); if(n && n.trim()){ s.name = n.trim(); saveSites(); renderSites(); } }
+  if(act==='del'){
+    if(!armed.get(id)){ btn.textContent = 'もう一度で削除'; armed.set(id, setTimeout(()=>{ armed.delete(id); btn.textContent='削除'; }, 3000)); return; }
+    clearTimeout(armed.get(id)); armed.delete(id);
+    sites = sites.filter(x => x.id!==id); saveSites(); renderSites();
+  }
+});
+$('mapDet').addEventListener('toggle', () => { if($('mapDet').open) initMap(); else { picking = false; $('pickBanner').hidden = true; } });
+$('btnSitesCsv').onclick = () => {
+  const L2 = ['地点名,メモ,緯度,経度,位置誤差(m),計測開始,計測時間,歩行者,歩行者A→B,歩行者B→A,歩行者/時,自転車,自転車A→B,自転車B→A,自転車/時,入店,退店,入店率(%),保存日時'];
+  const q = v => `"${String(v??'').replace(/"/g,'""')}"`;
+  for(const s of sites) L2.push([q(s.name), q(s.memo), s.lat.toFixed(6), s.lng.toFixed(6), s.acc??'', fmtDT(s.from), fmtSec(s.sec),
+    s.ped, s.pedAB, s.pedBA, s.pedH??'', s.bike, s.bikeAB, s.bikeBA, s.bikeH??'', s.door?s.in:'', s.door?s.out:'', s.door?(s.inRate??''):'', fmtDT(s.savedAt)].join(','));
+  const blob = new Blob(['﻿'+L2.join('\r\n')], {type:'text/csv'}), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `通行量_地点一覧_${fmtDT(Date.now()).replace(/[: ]/g,'-')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+};
+
 load(); renderDoorUI(); renderCounts(); fitStage(); draw([]);
+renderSites();
 setStatus(S.events.length ? `前回の記録 ${S.events.length} 件を復元` : '待機中');
 })();
 </script>
