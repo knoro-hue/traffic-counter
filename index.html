@@ -132,6 +132,21 @@ input[type=file]{display:none}
         <option value="60">60分</option>
       </select>
     </label>
+    <label class="f">遠くの人を無視
+      <select id="selMin">
+        <option value="0">しない</option>
+        <option value="0.1">弱</option>
+        <option value="0.18" selected>中</option>
+        <option value="0.28">強</option>
+      </select>
+    </label>
+    <label class="f">処理速度
+      <select id="selRate">
+        <option value="3">省電力（毎秒3回）</option>
+        <option value="6" selected>標準（毎秒6回）</option>
+        <option value="12">高速（毎秒12回）</option>
+      </select>
+    </label>
     <label class="f">ライン
       <select id="selLine">
         <option value="">（ドラッグで調整）</option>
@@ -166,10 +181,10 @@ const S = { model:null, modelName:null, running:false, stream:null, wake:null, f
 
 // ---------- 保存 ----------
 const KEY = 'tc-state-v1';
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify({events:S.events, line:S.line, bin:$('selBin').value, conf:$('selConf').value, model:$('selModel').value})); }catch(e){} }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify({events:S.events, line:S.line, bin:$('selBin').value, conf:$('selConf').value, model:$('selModel').value, min:$('selMin').value, rate:$('selRate').value})); }catch(e){} }
 function load(){ try{ const d = JSON.parse(localStorage.getItem(KEY)||'null'); if(!d) return;
   S.events = d.events||[]; if(d.line) S.line = d.line;
-  if(d.bin) $('selBin').value = d.bin; if(d.conf) $('selConf').value = d.conf; if(d.model) $('selModel').value = d.model; }catch(e){} }
+  if(d.bin) $('selBin').value = d.bin; if(d.conf) $('selConf').value = d.conf; if(d.model) $('selModel').value = d.model; if(d.min) $('selMin').value = d.min; if(d.rate) $('selRate').value = d.rate; }catch(e){} }
 
 // ---------- 表示 ----------
 function setStatus(html){ $('status').innerHTML = html; }
@@ -239,9 +254,14 @@ cv.addEventListener('pointermove', e => { if(!drag) return; const p = ptr(e);
 cv.addEventListener('pointerup', ()=>{ if(drag){ drag=null; save(); } });
 $('selLine').addEventListener('change', e => {
   if(e.target.value==='h') S.line = {a:{x:0.05,y:0.6}, b:{x:0.95,y:0.6}};
-  if(e.target.value==='v') S.line = {a:{x:0.5,y:0.05}, b:{x:0.5,y:0.95}};
+  if(e.target.value==='v') S.line = {a:{x:0.5,y:0.95}, b:{x:0.5,y:0.05}};  // 左がA・右がB
   e.target.value=''; save(); if(!S.running) draw([]);
 });
+// 点Pを線分に投影した位置（0〜1 が線の端から端）
+function along(p){
+  const {a,b} = S.line, dx=b.x-a.x, dy=b.y-a.y, l2=dx*dx+dy*dy||1;
+  return ((p.x-a.x)*dx + (p.y-a.y)*dy) / l2;
+}
 // 点Pが線のどちら側か（-1 = A側, 1 = B側, 0 = 線の近く）
 function side(p){
   const {a,b} = S.line, dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
@@ -291,6 +311,9 @@ function update(dets){
   const vw = video.videoWidth, vh = video.videoHeight, conf = +$('selConf').value, now = performance.now();
   let det = dets.filter(d => (d.class==='person'||d.class==='bicycle') && d.score>=KEEP_SCORE)
     .map(d => ({cls:d.class, score:d.score, box:[d.bbox[0]/vw, d.bbox[1]/vh, d.bbox[2]/vw, d.bbox[3]/vh]}));
+  const minH = +$('selMin').value;
+  // 枠が小さい（＝遠くにいる）人・自転車は対象外。自転車は人より背が低いので基準を緩める
+  det = det.filter(d => d.box[3] >= (d.cls==='bicycle' ? minH*0.7 : minH));
   const bikes = det.filter(d=>d.cls==='bicycle' && d.score>=conf*0.8);
   // 自転車と重なる人物 = 乗っている人 → 自転車として扱うので人物からは除外
   det = det.filter(d => d.cls!=='person' || !bikes.some(b => overlapRatio(d.box,b.box) > 0.25 || overlapRatio(b.box,d.box) > 0.4));
@@ -316,7 +339,7 @@ function update(dets){
     if(usedT.has(i)||usedD.has(j)) continue; usedT.add(i); usedD.add(j);
     const t = S.tracks[i], d = det[j], dt = Math.max(0.03, (now - t.seen)/1000);
     t.vx = t.vx*0.6 + ((d.cx - t.cx)/dt)*0.4; t.vy = t.vy*0.6 + ((d.cy - t.cy)/dt)*0.4;
-    t.cx = d.cx; t.cy = d.cy;
+    t.px = t.cx; t.py = t.cy; t.cx = d.cx; t.cy = d.cy;
     t.box = t.box.map((v,k)=> v*0.5 + d.box[k]*0.5);   // 枠のブレを抑える
     t.seen = now; t.hits++;
     if(!t.confirmed && t.hits>=2 && d.score>=conf) t.confirmed = true;
@@ -326,7 +349,9 @@ function update(dets){
       // 最初に見えた側から反対側へ移ったら1回カウント
       if(t.confirmed && s!==t.origin){
         const dir = t.origin<0 ? 'AB' : 'BA';
-        if(!t.counted.has(dir)){ t.counted.add(dir); S.events.push({t:Date.now(), cls:t.cls, dir}); renderCounts(); flash(t.cls); save(); }
+        // 線の延長上ではなく、引いた線の範囲内でまたいだときだけ数える
+        const u = along({x:(t.px+d.cx)/2, y:(t.py+d.cy)/2});
+        if(u >= -0.02 && u <= 1.02 && !t.counted.has(dir)){ t.counted.add(dir); S.events.push({t:Date.now(), cls:t.cls, dir}); renderCounts(); flash(t.cls); save(); }
         t.origin = s;   // 戻ってきた場合は逆方向として数えられる
       }
       t.side = s;
@@ -348,19 +373,22 @@ function flash(cls){
 // ---------- ループ ----------
 async function loop(){
   if(!S.running) return;
+  const t0 = performance.now();
   if(video.readyState >= 2 && !video.paused){
     try{
       if(video.videoWidth && (video.videoWidth!==S.vw || video.videoHeight!==S.vh)){ S.vw=video.videoWidth; S.vh=video.videoHeight; fitStage(); }
       const dets = await S.model.detect(video, 30, KEEP_SCORE);
       update(dets); draw(S.tracks);
       const live = S.tracks.filter(t=>t.confirmed && performance.now()-t.seen < 300);
-      $('hud').textContent = `検出 歩行者${live.filter(t=>t.cls==='person').length} 自転車${live.filter(t=>t.cls==='bicycle').length}`;
+      $('hud').textContent = `${$('selRate').value}回/秒 · 検出 歩行者${live.filter(t=>t.cls==='person').length} 自転車${live.filter(t=>t.cls==='bicycle').length}`;
       const now = performance.now(); if(S.lastT){ S.fps = S.fps*0.85 + (1000/(now-S.lastT))*0.15; } S.lastT = now;
       setStatus(`計測中 <b>${S.fps.toFixed(1)}</b> fps · 追跡 ${S.tracks.filter(t=>t.confirmed).length}`);
     }catch(e){ console.error(e); $('hud').textContent = '検出エラー: '+(e.message||e); }
   }
   if(video.ended){ stop(); setStatus('動画の最後まで計測しました'); return; }
-  requestAnimationFrame(loop);
+  // 指定した回数だけ検出し、それ以外は休ませて発熱を抑える
+  const wait = Math.max(0, 1000/(+$('selRate').value) - (performance.now() - t0));
+  S.timer = setTimeout(loop, document.visibilityState==='visible' ? wait : 1000);
 }
 
 async function ensureModel(){
@@ -379,7 +407,7 @@ async function startCamera(){
   $('btnStart').disabled = true;
   try{
     await ensureModel();
-    S.stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}}});
+    S.stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:15, max:30}}});
     video.srcObject = S.stream; video.removeAttribute('src');
     await video.play();
     begin();
@@ -405,7 +433,7 @@ function begin(){
   wakeLock(); loop();
 }
 function stop(){
-  S.running = false;
+  S.running = false; clearTimeout(S.timer);
   if(S.stream){ S.stream.getTracks().forEach(t=>t.stop()); S.stream=null; }
   if(!video.ended) video.pause();
   try{ S.wake?.release(); }catch(e){} S.wake=null;
@@ -417,7 +445,7 @@ function stop(){
 $('btnStart').onclick = () => S.running ? stop() : startCamera();
 $('btnFile').onclick = () => $('file').click();
 $('file').onchange = e => { const f = e.target.files[0]; if(f) startFile(f); e.target.value=''; };
-$('selModel').onchange = save; $('selConf').onchange = save;
+$('selModel').onchange = save; $('selConf').onchange = save; $('selMin').onchange = save; $('selRate').onchange = save;
 $('selBin').onchange = () => { save(); renderTable(); };
 $('det').addEventListener('toggle', renderTable);
 $('btnCsv').onclick = () => {
