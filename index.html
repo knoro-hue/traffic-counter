@@ -134,7 +134,7 @@ input[type=file]{display:none}
   </div>
 
   <div class="rate" id="rateRow">
-    <span>計測時間 <b id="r-time">0:00</b></span>
+    <span>計測時間 <b id="r-time">0:00:00</b></span>
     <span>1時間あたり 歩行者 <b id="r-person">—</b> 人</span>
     <span>自転車 <b id="r-bicycle">—</b> 台</span>
     <span id="r-door-wrap" hidden>入店 <b id="r-in">—</b> 人</span>
@@ -305,9 +305,10 @@ function renderCounts(){
   if($('det').open) renderTable();
 }
 function renderRate(c = totals()){
-  const ms = liveMs(), h = ms/3600000, m = Math.floor(ms/60000);
-  $('r-time').textContent = `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`;
-  const per = n => ms < 60000 ? '—' : Math.round(n/h).toLocaleString();
+  const ms = liveMs(), sec = Math.floor(ms/1000);
+  $('r-time').textContent = `${Math.floor(sec/3600)}:${pad(Math.floor(sec/60)%60)}:${pad(sec%60)}`;
+  // 秒単位の計測時間から1時間あたりに換算（3600秒 ÷ 計測秒数）
+  const per = n => sec < 1 ? '—' : (n*3600/sec).toLocaleString(undefined,{maximumFractionDigits:1});
   $('r-person').textContent = per(c.person.AB + c.person.BA);
   $('r-bicycle').textContent = per(c.bicycle.AB + c.bicycle.BA);
   $('r-in').textContent = per(c.in);
@@ -377,10 +378,10 @@ $('tapBicycle').onclick = () => tap('bicycle');
 
 // ---------- CSV ----------
 function csv(){
-  const c = totals(), ms = liveMs(), h = ms/3600000, per = n => ms>=60000 ? Math.round(n/h) : '';
+  const c = totals(), sec = Math.floor(liveMs()/1000), per = n => sec>=1 ? (n*3600/sec).toFixed(1) : '';
   const L = [];
   L.push('集計', '項目,値');
-  L.push(`計測時間（分）,${Math.round(ms/60000)}`);
+  L.push(`計測時間,${Math.floor(sec/3600)}:${pad(Math.floor(sec/60)%60)}:${pad(sec%60)}`, `計測時間（秒）,${sec}`);
   L.push(`歩行者 合計,${c.person.AB+c.person.BA}`, `歩行者 1時間あたり,${per(c.person.AB+c.person.BA)}`);
   L.push(`自転車 合計,${c.bicycle.AB+c.bicycle.BA}`, `自転車 1時間あたり,${per(c.bicycle.AB+c.bicycle.BA)}`);
   if(c.in || c.out || S.doorOn) L.push(`入店,${c.in}`, `退店,${c.out}`, `入店率,${pct(c.in, c.person.AB+c.person.BA)}`);
@@ -595,8 +596,9 @@ async function loop(){
   const wait = Math.max(0, 1000/(+$('selRate').value) - (performance.now() - t0));
   S.timer = setTimeout(loop, document.visibilityState==='visible' ? wait : 1000);
 }
-// 計測時間と1時間あたりの表示を30秒ごとに更新
-setInterval(() => { if(S.running){ renderRate(); if(S.check.on) renderCheck(); } }, 30000);
+// 計測時間と1時間あたりの表示を1秒ごとに更新
+let tick = 0;
+setInterval(() => { if(S.running){ renderRate(); if(S.check.on && ++tick%5===0) renderCheck(); } }, 1000);
 
 async function ensureModel(){
   const name = $('selModel').value;
