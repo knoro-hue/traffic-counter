@@ -181,6 +181,9 @@ button.icon span{display:block;width:18px;height:2px;background:var(--fg);border
 .grid2 select{width:100%}
 label.f select{width:100%}
 #map{height:min(48vh,380px);margin-top:0}
+.savemap{height:min(34vh,260px);border-radius:8px;border:1px solid var(--line);background:#20242a;z-index:0}
+.pin span{display:block;width:28px;height:28px;background:var(--danger);border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.leaflet-div-icon.pin{background:none;border:none}
 .projname{font-size:15px;color:var(--fg);font-weight:700;letter-spacing:0}
 </style>
 </head>
@@ -428,11 +431,8 @@ label.f select{width:100%}
     <h3>この地点を保存</h3>
     <label class="f">保存先のプロジェクト<span class="projname" id="saveProjName"></span></label>
     <label class="f">地点名<input id="siteName" required></label>
-    <label class="f">メモ（任意）<input id="siteMemo" placeholder="例：平日夕方、晴れ"></label>
     <div class="loc" id="siteLoc">現在地を取得中…</div>
-    <div class="btns">
-      <button type="button" id="btnPick">地図で場所を指定</button>
-    </div>
+    <div class="savemap" id="saveMap"></div>
     <label class="f" style="flex-direction:row;align-items:center;gap:8px;font-size:13px;color:var(--fg)">
       <input type="checkbox" id="siteReset" style="width:auto"> 保存後に計測をリセットして次の地点へ
     </label>
@@ -993,40 +993,60 @@ function openSave(){
   if(S.running) stop();   // 保存する数値を確定させる
   pending = {lat:null, lng:null, acc:null};
   $('siteName').value = `地点${projSites().length+1}`;
-  $('siteMemo').value = '';
   $('siteReset').checked = true;
   setLoc('現在地を取得中…');
   $('btnConfirmSite').disabled = true;
   $('saveProjName').textContent = projName();
   $('saveModal').hidden = false;
-  if(!navigator.geolocation){ setLoc('この端末では位置情報が使えません。「地図で場所を指定」を使ってください', true); return; }
+  initSaveMap();
+  if(!navigator.geolocation){ setLoc('位置情報が使えません。地図をタップして場所を指定してください', true); return; }
   navigator.geolocation.getCurrentPosition(p => {
     if(!pending) return;
-    pending.lat = p.coords.latitude; pending.lng = p.coords.longitude; pending.acc = Math.round(p.coords.accuracy);
-    setLoc(`現在地 ${pending.lat.toFixed(5)}, ${pending.lng.toFixed(5)}（誤差 約${pending.acc}m）`);
-    $('btnConfirmSite').disabled = false;
+    pending.acc = Math.round(p.coords.accuracy);
+    setPin(p.coords.latitude, p.coords.longitude, true);
   }, e => {
-    setLoc(e.code===1 ? '位置情報が許可されていません（設定 › Safari › 位置情報）。「地図で場所を指定」も使えます'
-                      : '現在地を取得できませんでした。「地図で場所を指定」を使ってください', true);
+    setLoc(e.code===1 ? '位置情報が許可されていません（設定 › Safari › 位置情報）。地図をタップして指定できます'
+                      : '現在地を取得できませんでした。地図をタップして場所を指定してください', true);
   }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
+}
+// 保存画面の小さな地図：現在地にピンを立て、ずれていればドラッグかタップで直せる
+let saveMap = null, savePin = null;
+function initSaveMap(){
+  if(!window.L){ $('saveMap').hidden = true; return; }
+  if(!saveMap){
+    saveMap = L.map('saveMap', {zoomControl:false, attributionControl:false});
+    L.tileLayer((STYLES[mapStyle]||STYLES.pale).url, {maxZoom:18}).addTo(saveMap);
+    saveMap.on('click', e => { if(pending){ pending.acc = null; setPin(e.latlng.lat, e.latlng.lng, false); } });
+  }
+  if(savePin){ savePin.remove(); savePin = null; }
+  // 位置が取れるまでは、前回保存した地点の周辺を表示
+  const last = projSites().at(-1) || sites.at(-1);
+  saveMap.setView(last ? [last.lat, last.lng] : [35.698, 139.771], last ? 16 : 13);
+  setTimeout(() => saveMap.invalidateSize(), 60);
+}
+function setPin(lat, lng, center){
+  pending.lat = lat; pending.lng = lng;
+  if(saveMap){
+    if(!savePin){
+      savePin = L.marker([lat, lng], {draggable:true, icon:L.divIcon({className:'pin', html:'<span></span>', iconSize:[28,28], iconAnchor:[14,28]})}).addTo(saveMap);
+      savePin.on('dragend', () => { const q = savePin.getLatLng(); pending.acc = null; setPin(q.lat, q.lng, false); });
+    }else savePin.setLatLng([lat, lng]);
+    if(center) saveMap.setView([lat, lng], 17);
+  }
+  setLoc(pending.acc!=null ? `現在地（誤差 約${pending.acc}m）　ずれていればピンを動かしてください` : '指定した場所　ピンはドラッグかタップで動かせます');
+  $('btnConfirmSite').disabled = false;
 }
 function setLoc(t, err){ $('siteLoc').textContent = t; $('siteLoc').classList.toggle('err', !!err); }
 $('btnSaveSite').onclick = () => {
-  if(!S.events.length && liveMs() < 1000){ $('btnSaveSite').textContent = '先に計測してください'; setTimeout(()=>$('btnSaveSite').textContent='この地点を保存', 1800); return; }
+  if(!S.events.length && liveMs() < 1000){ $('btnSaveSite').textContent = '先に計測してください'; setTimeout(()=>$('btnSaveSite').textContent='地点を保存', 1800); return; }
   openSave();
 };
 $('btnCancelSite').onclick = () => { pending = null; $('saveModal').hidden = true; };
-$('btnPick').onclick = () => {
-  // 地図を開いてタップで場所を指定
-  $('saveModal').hidden = true; picking = true;
-  openScreen('map'); $('pickBanner').hidden = false;
-  if(map && pending?.lat!=null) map.setView([pending.lat, pending.lng], 17);
-};
 $('saveForm').addEventListener('submit', e => {
   e.preventDefault();
   if(!pending || pending.lat==null) return;
   const name = $('siteName').value.trim() || `地点${projSites().length+1}`;
-  sites.push({id:Date.now(), projectId:curProj, name, memo:$('siteMemo').value.trim(), lat:pending.lat, lng:pending.lng, acc:pending.acc,
+  sites.push({id:Date.now(), projectId:curProj, name, memo:'', lat:pending.lat, lng:pending.lng, acc:pending.acc,
     savedAt:Date.now(), ...snapshot()});
   saveSites(); pending = null; $('saveModal').hidden = true; renderBackup();
   if($('siteReset').checked){
@@ -1036,7 +1056,7 @@ $('saveForm').addEventListener('submit', e => {
   renderSites();
   const s = sites[sites.length-1]; if(map && !$('scr-map').hidden){ map.setView([s.lat, s.lng], 17); markers.get(s.id)?.openPopup(); }
   $('btnSaveSite').textContent = `「${name}」を保存しました`;
-  setTimeout(()=>$('btnSaveSite').textContent='この地点を保存', 2200);
+  setTimeout(()=>$('btnSaveSite').textContent='地点を保存', 2200);
 });
 
 let map = null, layer = null, mapStyle = 'pale'; const markers = new Map();
