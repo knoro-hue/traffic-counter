@@ -815,6 +815,8 @@ function update(dets){
   retire(now);
   det.forEach((d,j)=>{
     if(usedD.has(j) || d.score < conf) return;   // 新しい人は設定した信頼度以上のときだけ追加
+    // 追跡中の人とほぼ同じ場所に出た枠は、同じ人の別の枠とみなして新しい人にしない
+    if(S.tracks.some(t => t.cls===d.cls && now - t.seen < 400 && (overlapRatio(d.box, t.box) > 0.6 || overlapRatio(t.box, d.box) > 0.6))) return;
     const pt = {x:d.cx, y:d.cy};
     // 人の陰に隠れていた人が再び現れた場合は、同じ人として引き継ぐ
     const old = revive(d, now);
@@ -882,7 +884,7 @@ function iou(a, b){
   return i / (a[2]*a[3] + b[2]*b[3] - i || 1);
 }
 async function detectFrame(){
-  if($('selZoom').value!=='on') return S.model.detect(video, 100, KEEP_SCORE);
+  if($('selZoom').value!=='on') return dedupe(await S.model.detect(video, 100, KEEP_SCORE));
   const vw = video.videoWidth, vh = video.videoHeight, r = roiRect();
   const rx = r.x*vw, ry = r.y*vh, rw = r.w*vw, rh = r.h*vh;
   // 細長い範囲は2〜3枚に分け、重なりを持たせて切り出す
@@ -890,7 +892,8 @@ async function detectFrame(){
   const horiz = ratio >= 1, ov = 0.2, tiles = [];
   for(let i=0; i<n; i++){
     const len = (horiz ? rw : rh) / (n - (n-1)*ov), st = i*len*(1-ov);
-    tiles.push(horiz ? {x:rx+st, y:ry, w:len, h:rh} : {x:rx, y:ry+st, w:rw, h:len});
+    // inA/inB：隣の切り出しと接している辺（ここで切れた人は隣の切り出しで全身が写っている）
+    tiles.push(horiz ? {x:rx+st, y:ry, w:len, h:rh, inA:i>0, inB:i<n-1} : {x:rx, y:ry+st, w:rw, h:len, inA:i>0, inB:i<n-1});
   }
   let all = [];
   for(const t of tiles){
@@ -898,13 +901,31 @@ async function detectFrame(){
     zoomCv.width = Math.round(t.w*sc); zoomCv.height = Math.round(t.h*sc);
     zoomCtx.drawImage(video, t.x, t.y, t.w, t.h, 0, 0, zoomCv.width, zoomCv.height);
     const ds = await S.model.detect(zoomCv, 100, KEEP_SCORE);
-    for(const d of ds) all.push({...d, bbox:[t.x + d.bbox[0]/sc, t.y + d.bbox[1]/sc, d.bbox[2]/sc, d.bbox[3]/sc]});
+    const edge = 6;   // 端から6ピクセル以内に触れている枠＝切れている
+    for(const d of ds){
+      const [bx,by,bw,bh] = d.bbox, W2 = zoomCv.width, H2 = zoomCv.height;
+      const cutA = horiz ? bx < edge : by < edge, cutB = horiz ? bx+bw > W2-edge : by+bh > H2-edge;
+      if((t.inA && cutA) || (t.inB && cutB)) continue;   // 継ぎ目で切れた体の一部は捨てる
+      all.push({...d, bbox:[t.x + bx/sc, t.y + by/sc, bw/sc, bh/sc]});
+    }
   }
   // 重なった部分で二重に見つかった人を1人にまとめる
   all.sort((a,b)=>b.score-a.score);
   const keep = [];
-  for(const d of all) if(!keep.some(k => k.class===d.class && iou(k.bbox, d.bbox) > 0.45)) keep.push(d);
   S.roi = {x:rx/vw, y:ry/vh, w:rw/vw, h:rh/vh};
+  return dedupe(all);
+}
+// 同じ人の枠が重なって2つ出た場合（上半身だけ・全身など）に1つにまとめる
+function dedupe(list){
+  const all = [...list].sort((a,b)=>b.score-a.score), keep = [];
+  const contain = (a,b) => { // 小さい方の枠が大きい方にどれだけ入っているか
+    const x1=Math.max(a[0],b[0]), y1=Math.max(a[1],b[1]), x2=Math.min(a[0]+a[2],b[0]+b[2]), y2=Math.min(a[1]+a[3],b[1]+b[3]);
+    return Math.max(0,x2-x1)*Math.max(0,y2-y1) / (Math.min(a[2]*a[3], b[2]*b[3]) || 1);
+  };
+  for(const d of all){
+    if(keep.some(k => k.class===d.class && (iou(k.bbox, d.bbox) > 0.45 || contain(k.bbox, d.bbox) > 0.7))) continue;
+    keep.push(d);
+  }
   return keep;
 }
 
