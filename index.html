@@ -204,8 +204,8 @@ input[type=file]{display:none}
       <label class="f">判定ラインの本数
         <select id="selMulti">
           <option value="1">1本</option>
-          <option value="3" selected>3本</option>
-          <option value="5">5本</option>
+          <option value="3">3本</option>
+          <option value="5" selected>5本</option>
         </select>
       </label>
       <label class="f">判定ラインの間隔
@@ -255,8 +255,8 @@ input[type=file]{display:none}
       <label class="f">処理速度
         <select id="selRate">
           <option value="3">省電力（毎秒3回）</option>
-          <option value="6" selected>標準（毎秒6回）</option>
-          <option value="12">高速（毎秒12回）</option>
+          <option value="6">標準（毎秒6回）</option>
+          <option value="12" selected>高速（毎秒12回）</option>
         </select>
       </label>
     </div>
@@ -376,7 +376,7 @@ const KEY = 'tc-state-v2', OLD_KEY = 'tc-state-v1';
 const SETTINGS = ['selModel','selConf','selMin','selRate','selBin','selMulti','selGap'];
 function save(){
   try{
-    const set = {}; SETTINGS.forEach(k => set[k] = $(k).value);
+    const set = {v:2}; SETTINGS.forEach(k => set[k] = $(k).value);
     localStorage.setItem(KEY, JSON.stringify({events:S.events, lines:S.lines, doorOn:S.doorOn, doorFlip:S.doorFlip,
       activeMs:liveMs(), check:S.check, set}));
   }catch(e){}
@@ -396,6 +396,8 @@ function load(){
     S.doorOn = !!d.doorOn; S.doorFlip = !!d.doorFlip;
     S.activeMs = d.activeMs || 0;
     if(d.check) S.check = {...S.check, ...d.check, on:false};
+    // 初期値を変更した設定は、旧バージョンで保存された値を一度だけ新しい初期値に置き換える
+    if(d.set && d.set.v!==2){ delete d.set.selMulti; delete d.set.selRate; }
     for(const k of SETTINGS) if(d.set?.[k] && [...$(k).options].some(o=>o.value===d.set[k])) $(k).value = d.set[k];
   }catch(e){}
 }
