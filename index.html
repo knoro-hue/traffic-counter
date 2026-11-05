@@ -114,6 +114,8 @@ input[type=file]{display:none}
 .sheet .btns button{flex:1 1 120px}
 .pick-banner{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:500;background:var(--accent);color:#14160a;font-weight:700;font-size:13px;padding:6px 12px;border-radius:999px;pointer-events:none;white-space:nowrap}
 .mapwrap{position:relative}
+.bk{background:#2a2f12;border:1px solid var(--accent);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:13px}
+.bk button.primary{flex:0 1 auto}
 .site .acts{flex-wrap:wrap;justify-content:flex-end}
 .imgsheet img{width:100%;border-radius:8px;border:1px solid var(--line);display:block}
 .imgsheet .note{font-size:12px;color:var(--muted);margin:0}
@@ -125,6 +127,11 @@ input[type=file]{display:none}
     <h1>通行量カウンター</h1>
     <div class="status" id="status">モデル未読込</div>
   </header>
+
+  <div class="bk" id="bkBanner" hidden>
+    <span id="bkText"></span>
+    <div class="row"><button class="primary" id="btnBkNow">今すぐバックアップ</button><button id="btnBkLater">あとで</button></div>
+  </div>
 
   <div class="stagewrap">
     <div class="stage" id="stage">
@@ -256,10 +263,12 @@ input[type=file]{display:none}
     </div>
     <div class="row">
       <button id="btnProjExport">このプロジェクトを書き出し</button>
-      <button id="btnProjImport">書き出したファイルを読み込み</button>
+      <button id="btnProjImport">ファイルを読み込み</button>
+      <button id="btnBackupAll">全プロジェクトをバックアップ</button>
       <input type="file" id="projFile" accept=".json,application/json">
     </div>
-    <p class="hint">計測結果を、現在地（GPS）と地点名を付けて選んだプロジェクトに保存します。マップ・画像・CSVはプロジェクトごとに作られます。データはこのiPhoneの中だけに保存されるので、大事なプロジェクトは「書き出し」でバックアップしてください。書き出したファイルは別のiPhoneでも読み込めます。</p>
+    <p class="hint">計測結果を、現在地（GPS）と地点名を付けて選んだプロジェクトに保存します。マップ・画像・CSVはプロジェクトごとに作られます。データはこのiPhoneの中だけに保存されるので、大事なプロジェクトは「書き出し」でバックアップしてください。書き出したファイルは別のiPhoneでも読み込めます。<br><span id="bkLast"></span></p>
+    <p class="hint" id="homeHint"><em>ホーム画面に追加して使うのがおすすめです。</em>Safariで開いたままだと、しばらく使わない間にiPhoneがデータを消すことがあります。共有ボタン →「ホーム画面に追加」から追加し、以後はホーム画面のアイコンから開いてください。</p>
   </section>
 
   <details id="mapDet">
@@ -857,7 +866,7 @@ $('saveForm').addEventListener('submit', e => {
   const name = $('siteName').value.trim() || `地点${projSites().length+1}`;
   sites.push({id:Date.now(), projectId:curProj, name, memo:$('siteMemo').value.trim(), lat:pending.lat, lng:pending.lng, acc:pending.acc,
     savedAt:Date.now(), ...snapshot()});
-  saveSites(); pending = null; $('saveModal').hidden = true;
+  saveSites(); pending = null; $('saveModal').hidden = true; renderBackup();
   if($('siteReset').checked){
     S.events = []; S.tracks = []; S.activeMs = 0; S.check = {on:false, start:0, end:0, manual:[]};
     save(); renderCounts();
@@ -1284,6 +1293,14 @@ $('projFile').onchange = async e => {
   try{
     const d = JSON.parse(await f.text());
     if(d.app!=='traffic-counter' || !Array.isArray(d.sites)) throw new Error('通行量カウンターで書き出したファイルではありません');
+    if(d.type==='all'){ // 全プロジェクトのバックアップ：同じ地点（同じID）は重複させずに戻す
+      const have = new Set(sites.map(s=>s.id)); let addP = 0, addS = 0;
+      for(const p of d.projects||[]){ if(!projects.some(x=>x.id===p.id)){ projects.push(p); addP++; } }
+      for(const s of d.sites){ if(!have.has(s.id)){ sites.push(s); addS++; } }
+      saveSites(); saveProjects(); switchProject(curProj);
+      alert(`バックアップから復元しました（プロジェクト${addP}件・地点${addS}件を追加。既にある分はそのままです）`);
+      return;
+    }
     let name = d.project?.name || f.name.replace(/\.json$/,'');
     if(projects.some(p=>p.name===name)) name += '（読込）';
     const p = {id:Date.now(), name, created:d.project?.created || Date.now()};
@@ -1295,8 +1312,49 @@ $('projFile').onchange = async e => {
   }catch(err){ alert('読み込めませんでした：' + (err.message||err)); }
 };
 
+// ---------- バックアップ ----------
+// ブラウザに「このデータを勝手に消さないで」と依頼する（ホーム画面に追加して使うと許可されやすい）
+(async () => { try{ if(navigator.storage?.persist && !(await navigator.storage.persisted())) await navigator.storage.persist(); }catch(e){} })();
+const BK_KEY = 'tc-backup-v1';
+let bk = {at:0, sig:''};
+try{ bk = JSON.parse(localStorage.getItem(BK_KEY)||'null') || bk; }catch(e){}
+const dataSig = () => sites.length + ':' + sites.reduce((t,s)=>t+s.id%100000+s.name.length+(s.projectId%1000),0) + ':' + projects.length;
+function renderBackup(){
+  const changed = sites.length && dataSig()!==bk.sig;
+  const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  $('bkBanner').hidden = !changed;
+  if(changed){
+    const n = bk.at ? sites.filter(s => (s.savedAt||0) > bk.at).length : sites.length;
+    $('bkText').textContent = bk.at
+      ? `前回のバックアップ（${fmtDT(bk.at)}）のあと、${n ? n+'地点が追加・' : ''}変更があります`
+      : `まだバックアップしていません（${sites.length}地点）`;
+  }
+  $('homeHint').hidden = standalone;
+  $('bkLast').textContent = bk.at ? `前回のバックアップ：${fmtDT(bk.at)}` : 'まだバックアップしていません';
+}
+async function backupAll(btn){
+  const data = JSON.stringify({app:'traffic-counter', version:2, type:'all', exportedAt:Date.now(), projects, sites});
+  const fname = `通行量カウンター_バックアップ_${fmtDT(Date.now()).replace(/[: ]/g,'-')}.json`;
+  const file = new File([data], fname, {type:'application/json'});
+  let done = false;
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:'通行量カウンターのバックアップ'}); done = true; }
+    catch(e){ if(e.name==='AbortError') return; }
+  }
+  if(!done){
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  }
+  bk = {at:Date.now(), sig:dataSig()};
+  try{ localStorage.setItem(BK_KEY, JSON.stringify(bk)); }catch(e){}
+  renderBackup();
+}
+$('btnBackupAll').onclick = () => backupAll();
+$('btnBkNow').onclick = () => backupAll();
+$('btnBkLater').onclick = () => { $('bkBanner').hidden = true; };
+
 load(); renderDoorUI(); renderCounts(); fitStage(); draw([]);
-renderSites();
+renderSites(); renderBackup();
 setStatus(S.events.length ? `前回の記録 ${S.events.length} 件を復元` : '待機中');
 })();
 </script>
