@@ -27,10 +27,13 @@ h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em}
 .status{font:500 12px var(--mono);color:var(--muted)}
 .status b{color:var(--accent);font-weight:600}
 .stagewrap{background:#000;border-radius:10px;overflow:hidden;display:flex;justify-content:center;align-items:center;min-height:200px;position:relative}
-.stage{position:relative;width:100%;max-height:56vh;aspect-ratio:16/9;max-width:100%}
+.stage{position:relative;width:100%;aspect-ratio:16/9;max-width:100%}
+.stage video{object-fit:fill}
+.hud{position:absolute;left:8px;top:8px;pointer-events:none;font:600 12px var(--mono);color:#fff;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px}
 .stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%}
 .stage canvas{touch-action:none}
-.placeholder{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);padding:16px;font-size:14px}
+[hidden]{display:none!important}
+.placeholder{pointer-events:none;position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);padding:16px;font-size:14px}
 .counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
 .tile .k{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
@@ -75,6 +78,7 @@ input[type=file]{display:none}
     <div class="stage" id="stage">
       <video id="video" playsinline muted></video>
       <canvas id="overlay"></canvas>
+      <div class="hud" id="hud" hidden></div>
       <div class="placeholder" id="ph">「開始」でカメラを起動します<br>黄色の線の端をドラッグして計測ラインを置いてください</div>
     </div>
   </div>
@@ -209,7 +213,11 @@ function csv(){
 // ---------- ステージ・ライン ----------
 function fitStage(){
   const w = video.videoWidth || 16, h = video.videoHeight || 9;
-  stage.style.aspectRatio = `${w}/${h}`;
+  if(video.videoWidth){ video.width = w; video.height = h; }
+  const maxW = stage.parentElement.clientWidth, maxH = window.innerHeight*0.56;
+  const sc = Math.min(maxW/w, maxH/h);
+  stage.style.aspectRatio = 'auto';
+  stage.style.width = Math.floor(w*sc)+'px'; stage.style.height = Math.floor(h*sc)+'px';
   const r = stage.getBoundingClientRect(), dpr = window.devicePixelRatio||1;
   cv.width = Math.round(r.width*dpr); cv.height = Math.round(r.height*dpr);
   ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -314,11 +322,14 @@ async function loop(){
   if(!S.running) return;
   if(video.readyState >= 2 && !video.paused){
     try{
+      if(video.videoWidth && (video.videoWidth!==S.vw || video.videoHeight!==S.vh)){ S.vw=video.videoWidth; S.vh=video.videoHeight; fitStage(); }
       const dets = await S.model.detect(video, 30);
       update(dets); draw(S.tracks);
+      const live = S.tracks.filter(t=>!t.miss);
+      $('hud').textContent = `検出 歩行者${live.filter(t=>t.cls==='person').length} 自転車${live.filter(t=>t.cls==='bicycle').length}`;
       const now = performance.now(); if(S.lastT){ S.fps = S.fps*0.85 + (1000/(now-S.lastT))*0.15; } S.lastT = now;
       setStatus(`計測中 <b>${S.fps.toFixed(1)}</b> fps · 追跡 ${S.tracks.filter(t=>!t.miss).length}`);
-    }catch(e){ console.error(e); }
+    }catch(e){ console.error(e); $('hud').textContent = '検出エラー: '+(e.message||e); }
   }
   if(video.ended){ stop(); setStatus('動画の最後まで計測しました'); return; }
   requestAnimationFrame(loop);
@@ -360,7 +371,7 @@ async function startFile(f){
   }catch(e){ setStatus('動画を再生できませんでした：'+e.message); }
 }
 function begin(){
-  $('ph').hidden = true; fitStage();
+  $('ph').hidden = true; $('hud').hidden = false; S.vw = 0; fitStage();
   S.running = true; S.tracks = []; S.lastT = 0;
   $('btnStart').textContent = '停止'; $('btnStart').classList.add('stop');
   wakeLock(); loop();
@@ -371,7 +382,7 @@ function stop(){
   if(!video.ended) video.pause();
   try{ S.wake?.release(); }catch(e){} S.wake=null;
   $('btnStart').textContent = '開始'; $('btnStart').classList.remove('stop');
-  setStatus('停止中'); draw([]);
+  $('hud').hidden = true; setStatus('停止中'); draw([]);
 }
 
 // ---------- ボタン ----------
