@@ -242,6 +242,7 @@ label.f select{width:100%}
     <span class="timer">計測 <b id="r-time">0:00:00</b></span>
     <span id="r-door-wrap" hidden></span>
     <div class="seg" id="modeSeg" role="radiogroup" aria-label="計測モード">
+      <button data-mode="ultra" role="radio">高精細</button>
       <button data-mode="fine" role="radio">精細</button>
       <button data-mode="normal" role="radio">普通</button>
       <button data-mode="light" role="radio">軽量</button>
@@ -395,9 +396,16 @@ label.f select{width:100%}
       </label>
       <label class="f">信頼度しきい値
         <select id="selConf">
+          <option value="0.3">0.30</option>
           <option value="0.35" selected>0.35</option>
           <option value="0.45">0.45</option>
           <option value="0.55">0.55</option>
+        </select>
+      </label>
+      <label class="f">線の周りを拡大して検出
+        <select id="selZoom">
+          <option value="off">しない</option>
+          <option value="on">する（重い）</option>
         </select>
       </label>
       <label class="f">遠くの人を無視
@@ -464,7 +472,7 @@ const KEEP_SCORE = 0.25;    // 追跡中の人は低い信頼度でも継続（�
 
 // ---------- 保存 ----------
 const KEY = 'tc-state-v2', OLD_KEY = 'tc-state-v1';
-const SETTINGS = ['selModel','selConf','selMin','selRate','selBin','selMulti','selGap'];
+const SETTINGS = ['selModel','selConf','selMin','selRate','selBin','selMulti','selGap','selZoom'];
 function save(){
   try{
     const set = {v:2}; SETTINGS.forEach(k => set[k] = $(k).value);
@@ -703,6 +711,11 @@ function draw(tracks){
     ctx.save(); ctx.setLineDash([10,8]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(232,240,74,.75)';
     ctx.beginPath(); ctx.moveTo(g.a.x*W, g.a.y*H); ctx.lineTo(g.b.x*W, g.b.y*H); ctx.stroke(); ctx.restore();
   }
+  if($('selZoom').value==='on'){
+    const r = roiRect();
+    ctx.save(); ctx.setLineDash([4,6]); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,.55)';
+    ctx.strokeRect(r.x*W, r.y*H, r.w*W, r.h*H); ctx.restore();
+  }
   drawLine('pass', '#e8f04a', [['A',-1],['B',1]]);
   if(S.doorOn) drawLine('door', '#6fe39a', [['外',outside()],['店内',-outside()]]);
   const now = performance.now();
@@ -848,6 +861,53 @@ function flash(kind){
   el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
 }
 
+
+// ---------- 検出（高精細：線の周りを切り出して拡大し、AIに見せる） ----------
+// AIは画像を約300ピクセルに縮めて調べるため、画面全体だと遠く・小さい人や重なった人を見落としやすい。
+// 判定ラインの周辺だけを切り出して（必要なら2〜3枚に分けて）調べると、1人あたりが大きく写り、見分けやすくなる。
+const zoomCv = document.createElement('canvas'), zoomCtx = zoomCv.getContext('2d');
+function roiRect(){
+  const pts = [];
+  for(const L of activeLines()) for(const g of segs(L)) pts.push(g.a, g.b);
+  let x0 = Math.min(...pts.map(p=>p.x)), x1 = Math.max(...pts.map(p=>p.x));
+  let y0 = Math.min(...pts.map(p=>p.y)), y1 = Math.max(...pts.map(p=>p.y));
+  // 人の全身が入るよう、上（頭側）を大きめに広げる
+  x0 -= 0.12; x1 += 0.12; y0 -= 0.35; y1 += 0.12;
+  x0 = Math.max(0,x0); y0 = Math.max(0,y0); x1 = Math.min(1,x1); y1 = Math.min(1,y1);
+  return {x:x0, y:y0, w:x1-x0, h:y1-y0};
+}
+function iou(a, b){
+  const x1=Math.max(a[0],b[0]), y1=Math.max(a[1],b[1]), x2=Math.min(a[0]+a[2],b[0]+b[2]), y2=Math.min(a[1]+a[3],b[1]+b[3]);
+  const i = Math.max(0,x2-x1)*Math.max(0,y2-y1);
+  return i / (a[2]*a[3] + b[2]*b[3] - i || 1);
+}
+async function detectFrame(){
+  if($('selZoom').value!=='on') return S.model.detect(video, 100, KEEP_SCORE);
+  const vw = video.videoWidth, vh = video.videoHeight, r = roiRect();
+  const rx = r.x*vw, ry = r.y*vh, rw = r.w*vw, rh = r.h*vh;
+  // 細長い範囲は2〜3枚に分け、重なりを持たせて切り出す
+  const ratio = rw/rh, n = ratio > 2.2 ? 3 : ratio > 1.4 ? 2 : (1/ratio > 2.2 ? 3 : 1/ratio > 1.4 ? 2 : 1);
+  const horiz = ratio >= 1, ov = 0.2, tiles = [];
+  for(let i=0; i<n; i++){
+    const len = (horiz ? rw : rh) / (n - (n-1)*ov), st = i*len*(1-ov);
+    tiles.push(horiz ? {x:rx+st, y:ry, w:len, h:rh} : {x:rx, y:ry+st, w:rw, h:len});
+  }
+  let all = [];
+  for(const t of tiles){
+    const sc = Math.min(1, 640/Math.max(t.w, t.h));
+    zoomCv.width = Math.round(t.w*sc); zoomCv.height = Math.round(t.h*sc);
+    zoomCtx.drawImage(video, t.x, t.y, t.w, t.h, 0, 0, zoomCv.width, zoomCv.height);
+    const ds = await S.model.detect(zoomCv, 100, KEEP_SCORE);
+    for(const d of ds) all.push({...d, bbox:[t.x + d.bbox[0]/sc, t.y + d.bbox[1]/sc, d.bbox[2]/sc, d.bbox[3]/sc]});
+  }
+  // 重なった部分で二重に見つかった人を1人にまとめる
+  all.sort((a,b)=>b.score-a.score);
+  const keep = [];
+  for(const d of all) if(!keep.some(k => k.class===d.class && iou(k.bbox, d.bbox) > 0.45)) keep.push(d);
+  S.roi = {x:rx/vw, y:ry/vh, w:rw/vw, h:rh/vh};
+  return keep;
+}
+
 // ---------- ループ ----------
 function setStatus(html){ $('status').innerHTML = html; }
 async function loop(){
@@ -856,7 +916,7 @@ async function loop(){
   if(video.readyState >= 2 && !video.paused){
     try{
       if(video.videoWidth && (video.videoWidth!==S.vw || video.videoHeight!==S.vh)){ S.vw=video.videoWidth; S.vh=video.videoHeight; fitStage(); }
-      const dets = await S.model.detect(video, 30, KEEP_SCORE);
+      const dets = await detectFrame();
       update(dets); draw(S.tracks);
       const live = S.tracks.filter(t=>t.confirmed && performance.now()-t.seen < 300);
       $('hud').textContent = `${$('selRate').value}回/秒 · 検出 歩行者${live.filter(t=>t.cls==='person').length} 自転車${live.filter(t=>t.cls==='bicycle').length}`;
@@ -889,7 +949,7 @@ async function startCamera(){
   $('btnStart').disabled = true;
   try{
     await ensureModel();
-    S.stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:15, max:30}}});
+    S.stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal: $('selZoom').value==='on' ? 1920 : 640}, height:{ideal: $('selZoom').value==='on' ? 1080 : 480}, frameRate:{ideal:15, max:30}}});
     video.srcObject = S.stream; video.removeAttribute('src');
     await video.play();
     begin();
@@ -1538,12 +1598,14 @@ $('bkBanner').hidden = true;
 
 // ---------- 計測モード（設定を一括で切り替え） ----------
 const MODES = {
+  ultra:  {label:'高精細', hint:'カメラを高画質にし、線の周りを拡大して高精度のAIで調べます。駅前など人が密集する場所向け。最も重く、発熱します（モード変更は次の「開始」から画質に反映）。',
+           set:{selModel:'mobilenet_v2', selRate:'12', selMulti:'5', selGap:'0.14', selConf:'0.3', selZoom:'on'}},
   fine:   {label:'精細', hint:'高精度のAIで毎秒12回。人が多い場所向け。電池の減りと発熱が大きくなります。',
-           set:{selModel:'mobilenet_v2', selRate:'12', selMulti:'5', selGap:'0.14', selConf:'0.35'}},
+           set:{selModel:'mobilenet_v2', selRate:'12', selMulti:'5', selGap:'0.14', selConf:'0.35', selZoom:'off'}},
   normal: {label:'普通', hint:'標準のAIで毎秒12回。たいていの場所はこれで十分です。',
-           set:{selModel:'lite_mobilenet_v2', selRate:'12', selMulti:'5', selGap:'0.14', selConf:'0.35'}},
+           set:{selModel:'lite_mobilenet_v2', selRate:'12', selMulti:'5', selGap:'0.14', selConf:'0.35', selZoom:'off'}},
   light:  {label:'軽量', hint:'毎秒6回に抑えて長時間の計測向け。人通りが少ない場所に。',
-           set:{selModel:'lite_mobilenet_v2', selRate:'6', selMulti:'5', selGap:'0.14', selConf:'0.35'}},
+           set:{selModel:'lite_mobilenet_v2', selRate:'6', selMulti:'5', selGap:'0.14', selConf:'0.35', selZoom:'off'}},
 };
 function currentMode(){
   return Object.keys(MODES).find(m => Object.entries(MODES[m].set).every(([k,v]) => $(k).value===v)) || null;
@@ -1560,7 +1622,7 @@ document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = async () =
   // 計測中にAIの種類が変わったら読み込み直す
   if(S.running && S.modelName !== $('selModel').value){ try{ await ensureModel(); setStatus('モードを切り替えました'); }catch(e){} }
 });
-['selModel','selRate','selMulti','selGap','selConf'].forEach(k => $(k).addEventListener('change', renderMode));
+['selModel','selRate','selMulti','selGap','selConf','selZoom'].forEach(k => $(k).addEventListener('change', renderMode));
 
 
 // ---------- 画面の切り替え（メインは1画面、メニューから別画面を開く） ----------
